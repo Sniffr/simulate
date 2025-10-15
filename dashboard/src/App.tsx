@@ -199,7 +199,7 @@ function App() {
             <div>
               <h1 className="text-4xl font-bold text-white flex items-center gap-3">
                 <Trophy className="text-yellow-400" size={40} />
-                Football Betting Simulator
+                Simulated Games
               </h1>
               <p className="text-blue-200 mt-2">Historical RTP tracking and betting analytics</p>
             </div>
