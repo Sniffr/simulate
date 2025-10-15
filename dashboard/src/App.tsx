@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, Trophy, Target, BarChart3, Activity, Percent, Search, RefreshCw, Database } from 'lucide-react'
+import { TrendingUp, TrendingDown, Trophy, Target, BarChart3, Activity, Percent, Search, RefreshCw, Database, Play, Pause } from 'lucide-react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL
@@ -54,10 +55,32 @@ function App() {
   const [rtpTrends, setRtpTrends] = useState<RTPTrend[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterWon, setFilterWon] = useState<boolean | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [refreshInterval, setRefreshInterval] = useState<number>(5)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     fetchAll()
   }, [])
+
+  useEffect(() => {
+    if (autoRefresh) {
+      intervalRef.current = setInterval(() => {
+        fetchAll()
+      }, refreshInterval * 1000)
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
+  }, [autoRefresh, refreshInterval])
 
   const fetchAll = async () => {
     await Promise.all([
@@ -180,7 +203,30 @@ function App() {
               </h1>
               <p className="text-blue-200 mt-2">Historical RTP tracking and betting analytics</p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3 items-center">
+              <div className="flex gap-2 items-center bg-black bg-opacity-30 px-4 py-2 rounded-lg border border-white border-opacity-10">
+                <Button 
+                  onClick={() => setAutoRefresh(!autoRefresh)} 
+                  variant="outline"
+                  size="sm"
+                  className={`${autoRefresh ? 'border-green-400 text-green-400' : 'border-gray-400 text-gray-400'}`}
+                >
+                  {autoRefresh ? <Pause size={16} className="mr-1" /> : <Play size={16} className="mr-1" />}
+                  {autoRefresh ? 'Stop' : 'Auto'}
+                </Button>
+                <Select value={refreshInterval.toString()} onValueChange={(val) => setRefreshInterval(Number(val))}>
+                  <SelectTrigger className="w-24 bg-white bg-opacity-10 border-white border-opacity-20 text-white text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3s</SelectItem>
+                    <SelectItem value="5">5s</SelectItem>
+                    <SelectItem value="10">10s</SelectItem>
+                    <SelectItem value="30">30s</SelectItem>
+                    <SelectItem value="60">60s</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <Button 
                 onClick={fetchAll} 
                 variant="outline"
