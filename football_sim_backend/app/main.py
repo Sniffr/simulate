@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg
+from typing import Optional
 from app.models import MatchSimulationRequest, MatchSimulationResponse, RTPConfig, Market
 from app.match_simulator import FootballMatchSimulator
 from app.betting_logic import BettingEngine, get_supported_markets
+from app.database import save_simulation, get_simulations, get_simulation_stats, get_rtp_trends, get_count
 
 app = FastAPI(
     title="Football Match Simulator API",
@@ -109,7 +111,7 @@ async def simulate_match(request: MatchSimulationRequest):
             total_payout = None
             total_profit = None
         
-        return MatchSimulationResponse(
+        response = MatchSimulationResponse(
             home_team=request.home_team,
             away_team=request.away_team,
             final_score={
@@ -131,9 +133,70 @@ async def simulate_match(request: MatchSimulationRequest):
                 "number_of_bets": len(request.bet_slip)
             }
         )
+        
+        simulation_data = {
+            'home_team': request.home_team,
+            'away_team': request.away_team,
+            'home_score': simulator.home_score,
+            'away_score': simulator.away_score,
+            'bet_slip_won': bet_slip_won,
+            'total_stake': total_stake,
+            'total_payout': total_payout,
+            'total_profit': total_profit,
+            'configured_rtp': current_rtp,
+            'seed': simulator.rng.get_seed(),
+            'volatility': request.volatility,
+            'total_events': len(events),
+            'number_of_bets': len(request.bet_slip),
+            'bet_results': [result.dict() for result in bet_results],
+            'events': [event.dict() for event in events],
+            'match_stats': stats
+        }
+        save_simulation(simulation_data)
+        
+        return response
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/history")
+async def get_simulation_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    team: Optional[str] = Query(None, description="Filter by team name"),
+    won: Optional[bool] = Query(None, description="Filter by bet slip won/lost")
+):
+    """Get historical simulations with pagination and filtering"""
+    simulations = get_simulations(limit=limit, offset=offset, team=team, bet_slip_won=won)
+    total_count = get_count(team=team, bet_slip_won=won)
+    
+    return {
+        "simulations": simulations,
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "total": total_count,
+            "has_more": offset + limit < total_count
+        }
+    }
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Get overall simulation statistics including RTP analysis"""
+    return get_simulation_stats()
+
+
+@app.get("/api/rtp-trends")
+async def get_rtp_trend_data(
+    limit: int = Query(100, ge=10, le=500, description="Number of recent simulations to analyze")
+):
+    """Get RTP trends over time with cumulative and rolling window calculations"""
+    return {
+        "trends": get_rtp_trends(limit=limit),
+        "description": "RTP trends showing configured vs actual RTP over time"
+    }
 
 
 @app.get("/api/example")
