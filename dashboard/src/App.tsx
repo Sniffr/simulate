@@ -13,6 +13,7 @@ const API_URL = import.meta.env.VITE_API_URL
 
 interface HistoricalSimulation {
   id: number
+  user_id: string
   home_team: string
   away_team: string
   home_score: number
@@ -24,6 +25,31 @@ interface HistoricalSimulation {
   configured_rtp: number
   created_at: string
   number_of_bets: number
+}
+
+interface Player {
+  user_id: string
+  total_simulations: number
+  won_slips: number
+  total_staked: number
+  total_paid_out: number
+  actual_rtp: number
+  last_simulation: string
+}
+
+interface PlayerStats {
+  user_id: string
+  total_simulations: number
+  won_slips: number
+  lost_slips: number
+  total_bets: number
+  total_staked: number
+  total_paid_out: number
+  house_profit: number
+  total_player_profit: number
+  actual_rtp: number
+  avg_configured_rtp: number
+  rtp_difference: number
 }
 
 interface Stats {
@@ -58,6 +84,9 @@ function App() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [refreshInterval, setRefreshInterval] = useState<number>(5)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [players, setPlayers] = useState<Player[]>([])
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null)
+  const [playerStats, setPlayerStats] = useState<PlayerStats | null>(null)
 
   useEffect(() => {
     fetchAll()
@@ -87,7 +116,8 @@ function App() {
       fetchRtp(),
       fetchStats(),
       fetchHistory(),
-      fetchRTPTrends()
+      fetchRTPTrends(),
+      fetchPlayers()
     ])
   }
 
@@ -135,6 +165,27 @@ function App() {
     }
   }
 
+  const fetchPlayers = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/players`)
+      const data = await response.json()
+      setPlayers(data.players || [])
+    } catch (error) {
+      console.error('Error fetching players:', error)
+    }
+  }
+
+  const fetchPlayerStats = async (userId: string) => {
+    try {
+      const response = await fetch(`${API_URL}/api/players/${userId}/stats`)
+      const data = await response.json()
+      setPlayerStats(data)
+    } catch (error) {
+      console.error('Error fetching player stats:', error)
+      setPlayerStats(null)
+    }
+  }
+
   const updateRtp = async (newRtp: number) => {
     try {
       await fetch(`${API_URL}/api/rtp`, {
@@ -155,6 +206,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          user_id: "demo_user",
           home_team: "Manchester United",
           away_team: "Arsenal",
           score_probabilities: [
@@ -370,6 +422,126 @@ function App() {
           </Card>
         )}
 
+        {players.length > 0 && (
+          <Card className="bg-white bg-opacity-10 backdrop-blur-md border-white border-opacity-20 mb-8">
+            <CardHeader>
+              <CardTitle className="text-white text-2xl">Player Statistics</CardTitle>
+              <CardDescription className="text-blue-200">
+                Per-player RTP and betting performance
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white border-opacity-10 hover:bg-transparent">
+                      <TableHead className="text-blue-200">Player ID</TableHead>
+                      <TableHead className="text-blue-200">Simulations</TableHead>
+                      <TableHead className="text-blue-200">Won</TableHead>
+                      <TableHead className="text-blue-200">Total Staked</TableHead>
+                      <TableHead className="text-blue-200">Total Payout</TableHead>
+                      <TableHead className="text-blue-200">Player RTP</TableHead>
+                      <TableHead className="text-blue-200">Last Activity</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {players.map((player) => (
+                      <TableRow 
+                        key={player.user_id} 
+                        className="border-white border-opacity-10 hover:bg-white hover:bg-opacity-5 cursor-pointer"
+                        onClick={() => {
+                          setSelectedPlayer(player.user_id)
+                          fetchPlayerStats(player.user_id)
+                        }}
+                      >
+                        <TableCell className="text-white font-semibold">{player.user_id}</TableCell>
+                        <TableCell className="text-white">{player.total_simulations}</TableCell>
+                        <TableCell>
+                          <Badge className="bg-green-600">{player.won_slips}</Badge>
+                        </TableCell>
+                        <TableCell className="text-white text-right">
+                          ${player.total_staked.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-white text-right">
+                          ${player.total_paid_out.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge className={player.actual_rtp >= 0.96 ? 'bg-green-600' : player.actual_rtp >= 0.92 ? 'bg-yellow-600' : 'bg-red-600'}>
+                            {(player.actual_rtp * 100).toFixed(1)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-gray-400 text-xs">
+                          {new Date(player.last_simulation).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              {selectedPlayer && playerStats && (
+                <div className="mt-6 p-4 bg-black bg-opacity-30 rounded-lg border border-white border-opacity-10">
+                  <h3 className="text-white text-xl font-bold mb-4">
+                    Detailed Stats for {selectedPlayer}
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <div className="text-gray-400 text-sm">Total Simulations</div>
+                      <div className="text-white text-2xl font-bold">{playerStats.total_simulations}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Win Rate</div>
+                      <div className="text-white text-2xl font-bold">
+                        {((playerStats.won_slips / playerStats.total_simulations) * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Total Profit/Loss</div>
+                      <div className={`text-2xl font-bold ${playerStats.total_player_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {playerStats.total_player_profit >= 0 ? '+' : ''}${playerStats.total_player_profit.toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Actual RTP</div>
+                      <div className="text-white text-2xl font-bold">
+                        {(playerStats.actual_rtp * 100).toFixed(2)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">House Profit (from this player)</div>
+                      <div className="text-white text-2xl font-bold">
+                        ${playerStats.house_profit.toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Avg Configured RTP</div>
+                      <div className="text-white text-2xl font-bold">
+                        {(playerStats.avg_configured_rtp * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">RTP Difference</div>
+                      <div className={`text-2xl font-bold ${Math.abs(playerStats.rtp_difference) < 0.05 ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {playerStats.rtp_difference >= 0 ? '+' : ''}{(playerStats.rtp_difference * 100).toFixed(2)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Total Bets</div>
+                      <div className="text-white text-2xl font-bold">{playerStats.total_bets}</div>
+                    </div>
+                  </div>
+                  <Button 
+                    onClick={() => { setSelectedPlayer(null); setPlayerStats(null); }}
+                    className="mt-4 bg-gray-600 hover:bg-gray-700"
+                  >
+                    Close Details
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="bg-white bg-opacity-10 backdrop-blur-md border-white border-opacity-20">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -435,6 +607,7 @@ function App() {
                   <TableHeader>
                     <TableRow className="border-white border-opacity-10 hover:bg-transparent">
                       <TableHead className="text-blue-200">ID</TableHead>
+                      <TableHead className="text-blue-200">Player</TableHead>
                       <TableHead className="text-blue-200">Match</TableHead>
                       <TableHead className="text-blue-200">Score</TableHead>
                       <TableHead className="text-blue-200">Result</TableHead>
@@ -452,6 +625,9 @@ function App() {
                         className="border-white border-opacity-10 hover:bg-white hover:bg-opacity-5"
                       >
                         <TableCell className="text-white font-mono text-xs">#{sim.id}</TableCell>
+                        <TableCell className="text-white">
+                          <Badge variant="secondary" className="font-mono text-xs">{sim.user_id}</Badge>
+                        </TableCell>
                         <TableCell className="text-white">
                           <div className="text-sm font-semibold">{sim.home_team} vs {sim.away_team}</div>
                           <div className="text-xs text-gray-400">{sim.number_of_bets} bets</div>

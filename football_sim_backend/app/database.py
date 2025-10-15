@@ -22,6 +22,7 @@ def init_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS simulations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
                 home_team TEXT NOT NULL,
                 away_team TEXT NOT NULL,
                 home_score INTEGER NOT NULL,
@@ -54,6 +55,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_away_team ON simulations(away_team)
         """)
         
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_id ON simulations(user_id)
+        """)
+        
         conn.commit()
 
 def save_simulation(simulation_data: Dict[str, Any]) -> int:
@@ -62,12 +67,13 @@ def save_simulation(simulation_data: Dict[str, Any]) -> int:
         
         cursor.execute("""
             INSERT INTO simulations (
-                home_team, away_team, home_score, away_score,
+                user_id, home_team, away_team, home_score, away_score,
                 bet_slip_won, total_stake, total_payout, total_profit,
                 configured_rtp, seed, volatility, total_events, number_of_bets,
                 bet_results, events, match_stats
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
+            simulation_data['user_id'],
             simulation_data['home_team'],
             simulation_data['away_team'],
             simulation_data['home_score'],
@@ -93,13 +99,18 @@ def get_simulations(
     limit: int = 50,
     offset: int = 0,
     team: Optional[str] = None,
-    bet_slip_won: Optional[bool] = None
+    bet_slip_won: Optional[bool] = None,
+    user_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     with get_db() as conn:
         cursor = conn.cursor()
         
         query = "SELECT * FROM simulations WHERE 1=1"
         params = []
+        
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
         
         if team:
             query += " AND (home_team LIKE ? OR away_team LIKE ?)"
@@ -120,6 +131,7 @@ def get_simulations(
         for row in rows:
             simulations.append({
                 'id': row['id'],
+                'user_id': row['user_id'],
                 'home_team': row['home_team'],
                 'away_team': row['away_team'],
                 'home_score': row['home_score'],
@@ -234,12 +246,114 @@ def get_rtp_trends(limit: int = 100) -> List[Dict[str, Any]]:
         
         return trends
 
-def get_count(team: Optional[str] = None, bet_slip_won: Optional[bool] = None) -> int:
+def get_player_stats(user_id: str) -> Dict[str, Any]:
+    """Get statistics for a specific player"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_simulations,
+                SUM(CASE WHEN bet_slip_won = 1 THEN 1 ELSE 0 END) as won_slips,
+                SUM(CASE WHEN bet_slip_won = 0 THEN 1 ELSE 0 END) as lost_slips,
+                SUM(total_stake) as total_staked,
+                SUM(total_payout) as total_paid_out,
+                SUM(total_profit) as total_player_profit,
+                SUM(number_of_bets) as total_bets,
+                AVG(configured_rtp) as avg_configured_rtp
+            FROM simulations
+            WHERE user_id = ? AND total_stake IS NOT NULL
+        """, (user_id,))
+        
+        row = cursor.fetchone()
+        
+        if not row or row['total_simulations'] == 0:
+            return {
+                'user_id': user_id,
+                'total_simulations': 0,
+                'won_slips': 0,
+                'lost_slips': 0,
+                'total_bets': 0,
+                'total_staked': 0,
+                'total_paid_out': 0,
+                'house_profit': 0,
+                'total_player_profit': 0,
+                'actual_rtp': 0,
+                'avg_configured_rtp': 0,
+                'rtp_difference': 0
+            }
+        
+        total_staked = float(row['total_staked']) if row['total_staked'] else 0
+        total_paid_out = float(row['total_paid_out']) if row['total_paid_out'] else 0
+        
+        actual_rtp = (total_paid_out / total_staked) if total_staked > 0 else 0
+        house_profit = total_staked - total_paid_out
+        avg_configured_rtp = float(row['avg_configured_rtp']) if row['avg_configured_rtp'] else 0
+        
+        return {
+            'user_id': user_id,
+            'total_simulations': row['total_simulations'],
+            'won_slips': row['won_slips'],
+            'lost_slips': row['lost_slips'],
+            'total_bets': row['total_bets'],
+            'total_staked': total_staked,
+            'total_paid_out': total_paid_out,
+            'house_profit': house_profit,
+            'total_player_profit': float(row['total_player_profit']) if row['total_player_profit'] else 0,
+            'actual_rtp': actual_rtp,
+            'avg_configured_rtp': avg_configured_rtp,
+            'rtp_difference': actual_rtp - avg_configured_rtp
+        }
+
+def get_all_players() -> List[Dict[str, Any]]:
+    """Get list of all players with their basic stats"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                user_id,
+                COUNT(*) as total_simulations,
+                SUM(CASE WHEN bet_slip_won = 1 THEN 1 ELSE 0 END) as won_slips,
+                SUM(total_stake) as total_staked,
+                SUM(total_payout) as total_paid_out,
+                MAX(created_at) as last_simulation
+            FROM simulations
+            WHERE total_stake IS NOT NULL
+            GROUP BY user_id
+            ORDER BY last_simulation DESC
+        """)
+        
+        rows = cursor.fetchall()
+        
+        players = []
+        for row in rows:
+            total_staked = float(row['total_staked']) if row['total_staked'] else 0
+            total_paid_out = float(row['total_paid_out']) if row['total_paid_out'] else 0
+            actual_rtp = (total_paid_out / total_staked) if total_staked > 0 else 0
+            
+            players.append({
+                'user_id': row['user_id'],
+                'total_simulations': row['total_simulations'],
+                'won_slips': row['won_slips'],
+                'total_staked': total_staked,
+                'total_paid_out': total_paid_out,
+                'actual_rtp': actual_rtp,
+                'last_simulation': row['last_simulation']
+            })
+        
+        return players
+
+def get_count(team: Optional[str] = None, bet_slip_won: Optional[bool] = None, user_id: Optional[str] = None) -> int:
     with get_db() as conn:
         cursor = conn.cursor()
         
         query = "SELECT COUNT(*) as count FROM simulations WHERE 1=1"
         params = []
+        
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
         
         if team:
             query += " AND (home_team LIKE ? OR away_team LIKE ?)"

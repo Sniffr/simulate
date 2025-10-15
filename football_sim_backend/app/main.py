@@ -5,7 +5,7 @@ from typing import Optional
 from app.models import MatchSimulationRequest, MatchSimulationResponse, RTPConfig, Market
 from app.match_simulator import FootballMatchSimulator
 from app.betting_logic import BettingEngine, get_supported_markets
-from app.database import save_simulation, get_simulations, get_simulation_stats, get_rtp_trends, get_count
+from app.database import save_simulation, get_simulations, get_simulation_stats, get_rtp_trends, get_count, get_player_stats, get_all_players
 
 app = FastAPI(
     title="Football Match Simulator API",
@@ -135,6 +135,7 @@ async def simulate_match(request: MatchSimulationRequest):
         )
         
         simulation_data = {
+            'user_id': request.user_id,
             'home_team': request.home_team,
             'away_team': request.away_team,
             'home_score': simulator.home_score,
@@ -165,11 +166,12 @@ async def get_simulation_history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     team: Optional[str] = Query(None, description="Filter by team name"),
-    won: Optional[bool] = Query(None, description="Filter by bet slip won/lost")
+    won: Optional[bool] = Query(None, description="Filter by bet slip won/lost"),
+    user_id: Optional[str] = Query(None, description="Filter by user/player ID")
 ):
     """Get historical simulations with pagination and filtering"""
-    simulations = get_simulations(limit=limit, offset=offset, team=team, bet_slip_won=won)
-    total_count = get_count(team=team, bet_slip_won=won)
+    simulations = get_simulations(limit=limit, offset=offset, team=team, bet_slip_won=won, user_id=user_id)
+    total_count = get_count(team=team, bet_slip_won=won, user_id=user_id)
     
     return {
         "simulations": simulations,
@@ -199,10 +201,34 @@ async def get_rtp_trend_data(
     }
 
 
+@app.get("/api/players")
+async def get_players():
+    """Get list of all players with their statistics"""
+    return {
+        "players": get_all_players(),
+        "description": "All players who have placed bets with their stats"
+    }
+
+
+@app.get("/api/players/{user_id}/stats")
+async def get_player_statistics(user_id: str):
+    """Get detailed statistics for a specific player"""
+    stats = get_player_stats(user_id)
+    
+    if stats['total_simulations'] == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No simulations found for player {user_id}"
+        )
+    
+    return stats
+
+
 @app.get("/api/example")
 async def get_example_request():
     return {
         "single_bet": {
+            "user_id": "player123",
             "home_team": "Manchester United",
             "away_team": "Girona",
             "score_probabilities": [
@@ -227,6 +253,7 @@ async def get_example_request():
             "volatility": "medium"
         },
         "multiple_bets": {
+            "user_id": "player456",
             "home_team": "Barcelona",
             "away_team": "Real Madrid",
             "score_probabilities": [

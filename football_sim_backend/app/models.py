@@ -49,6 +49,7 @@ class BetSelection(BaseModel):
 
 
 class MatchSimulationRequest(BaseModel):
+    user_id: str = Field(description="Unique identifier for the player/user")
     home_team: str
     away_team: str
     score_probabilities: List[ScoreProbability]
