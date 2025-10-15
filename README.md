@@ -11,10 +11,25 @@ A probabilistic football match simulator with betting mechanics based on RTP (Re
 - **Optional Stakes & Odds**: Flexible betting with or without monetary stakes
 - **Reproducible Simulations**: Seed-based RNG for consistent results
 - **Match Statistics**: Detailed stats including possession, shots, corners, and fouls
+- **Beautiful Dashboard**: Real-time RTP tracking and simulation visualization
 
-## Live API
+## Live URLs
 
-**Production URL**: https://app-pqyimwto.fly.dev
+**Dashboard**: https://football-simulation-app-qlot6bn9.devinapps.com
+
+**API Backend**: https://app-pqyimwto.fly.dev
+
+## Dashboard Features
+
+The dashboard provides a stunning visual interface to interact with the simulation system:
+
+- **Real-time RTP Tracking**: Compare configured RTP vs actual RTP across all simulations
+- **Live Statistics**: Total bets, win/loss ratio, house profit
+- **Interactive Controls**: One-click RTP adjustment (96%, 92%, 88%)
+- **Simulation History**: View up to 20 recent simulations with full bet details
+- **Beautiful UI**: Gradient design with dark theme and smooth animations
+- **Bet Visualization**: Color-coded bet results with detailed payout information
+- **Match Details**: Score, events, metadata for each simulation
 
 ## Quick Start
 
@@ -157,10 +172,19 @@ poetry run pytest
 
 ## Tech Stack
 
+### Backend
 - **FastAPI** - Web framework
 - **Pydantic** - Data validation
 - **Poetry** - Dependency management
 - **Fly.io** - Deployment platform
+
+### Frontend (Dashboard)
+- **React** - UI library
+- **TypeScript** - Type safety
+- **Vite** - Build tool
+- **Tailwind CSS** - Styling
+- **shadcn/ui** - UI components
+- **Lucide Icons** - Icon system
 
 ## License
 
