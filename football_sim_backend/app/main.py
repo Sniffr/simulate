@@ -56,10 +56,10 @@ async def simulate_match(request: MatchSimulationRequest):
         global current_rtp
         
         total_probability = sum(sp.probability for sp in request.score_probabilities)
-        if abs(total_probability - 1.0) > 0.01:
+        if total_probability <= 0:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Score probabilities must sum to 1.0 (currently {total_probability})"
+                detail=f"Score probabilities must sum to a positive number (currently {total_probability})"
             )
         
         betting_engine = BettingEngine(rtp=current_rtp)
