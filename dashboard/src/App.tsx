@@ -1,60 +1,95 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { TrendingUp, TrendingDown, Trophy, Target, BarChart3, Activity, Percent } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { TrendingUp, TrendingDown, Trophy, Target, BarChart3, Activity, Percent, Search, RefreshCw, Database, Play, Pause } from 'lucide-react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL
 
-interface SimulationData {
+interface HistoricalSimulation {
+  id: number
   home_team: string
   away_team: string
-  final_score: Record<string, number>
+  home_score: number
+  away_score: number
   bet_slip_won: boolean
-  bet_results: Array<{
-    market: string
-    outcome: string
-    won: boolean
-    stake: number | null
-    odds: number | null
-    payout: number | null
-    profit: number | null
-    explanation: string
-  }>
   total_stake: number | null
   total_payout: number | null
   total_profit: number | null
-  simulation_metadata: {
-    rtp: number
-    volatility: string
-    seed: number
-    total_events: number
-    number_of_bets: number
-  }
+  configured_rtp: number
+  created_at: string
+  number_of_bets: number
+}
+
+interface Stats {
+  total_simulations: number
+  won_slips: number
+  lost_slips: number
+  total_bets: number
+  total_staked: number
+  total_paid_out: number
+  house_profit: number
+  actual_rtp: number
+  avg_configured_rtp: number
+  rtp_difference: number
+}
+
+interface RTPTrend {
+  simulation_number: number
+  created_at: string
+  configured_rtp: number
+  cumulative_actual_rtp: number
+  rolling_window_rtp: number
 }
 
 function App() {
   const [rtp, setRtp] = useState<number>(0.96)
   const [loading, setLoading] = useState(false)
-  const [simulations, setSimulations] = useState<SimulationData[]>([])
-  const [stats, setStats] = useState({
-    totalBets: 0,
-    wonBets: 0,
-    lostBets: 0,
-    totalStaked: 0,
-    totalPayout: 0,
-    actualRtp: 0
-  })
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [history, setHistory] = useState<HistoricalSimulation[]>([])
+  const [rtpTrends, setRtpTrends] = useState<RTPTrend[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [filterWon, setFilterWon] = useState<boolean | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [refreshInterval, setRefreshInterval] = useState<number>(5)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    fetchRtp()
+    fetchAll()
   }, [])
 
   useEffect(() => {
-    calculateStats()
-  }, [simulations])
+    if (autoRefresh) {
+      intervalRef.current = setInterval(() => {
+        fetchAll()
+      }, refreshInterval * 1000)
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
+  }, [autoRefresh, refreshInterval])
+
+  const fetchAll = async () => {
+    await Promise.all([
+      fetchRtp(),
+      fetchStats(),
+      fetchHistory(),
+      fetchRTPTrends()
+    ])
+  }
 
   const fetchRtp = async () => {
     try {
@@ -63,6 +98,40 @@ function App() {
       setRtp(data.rtp)
     } catch (error) {
       console.error('Error fetching RTP:', error)
+    }
+  }
+
+  const fetchStats = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/stats`)
+      const data = await response.json()
+      setStats(data)
+    } catch (error) {
+      console.error('Error fetching stats:', error)
+    }
+  }
+
+  const fetchHistory = async () => {
+    try {
+      let url = `${API_URL}/api/history?limit=50`
+      if (searchTerm) url += `&team=${encodeURIComponent(searchTerm)}`
+      if (filterWon !== null) url += `&won=${filterWon}`
+      
+      const response = await fetch(url)
+      const data = await response.json()
+      setHistory(data.simulations)
+    } catch (error) {
+      console.error('Error fetching history:', error)
+    }
+  }
+
+  const fetchRTPTrends = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/rtp-trends?limit=100`)
+      const data = await response.json()
+      setRtpTrends(data.trends)
+    } catch (error) {
+      console.error('Error fetching RTP trends:', error)
     }
   }
 
@@ -82,7 +151,7 @@ function App() {
   const runSimulation = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/api/simulate`, {
+      await fetch(`${API_URL}/api/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -106,8 +175,8 @@ function App() {
           volatility: "medium"
         })
       })
-      const data = await response.json()
-      setSimulations(prev => [data, ...prev].slice(0, 20))
+      
+      await fetchAll()
     } catch (error) {
       console.error('Error running simulation:', error)
     } finally {
@@ -115,275 +184,305 @@ function App() {
     }
   }
 
-  const calculateStats = () => {
-    let totalBets = 0
-    let wonBets = 0
-    let lostBets = 0
-    let totalStaked = 0
-    let totalPayout = 0
-
-    simulations.forEach(sim => {
-      sim.bet_results.forEach(bet => {
-        if (bet.stake !== null) {
-          totalBets++
-          totalStaked += bet.stake
-          if (bet.won) {
-            wonBets++
-            totalPayout += bet.payout || 0
-          } else {
-            lostBets++
-          }
-        }
-      })
-    })
-
-    const actualRtp = totalStaked > 0 ? (totalPayout / totalStaked) : 0
-
-    setStats({
-      totalBets,
-      wonBets,
-      lostBets,
-      totalStaked,
-      totalPayout,
-      actualRtp
-    })
+  const handleSearch = () => {
+    fetchHistory()
   }
 
-  const rtpDifference = stats.actualRtp - rtp
-  const rtpColor = Math.abs(rtpDifference) < 0.05 ? 'text-green-600' : 'text-yellow-600'
+  const rtpDifference = stats ? stats.rtp_difference : 0
+  const rtpColor = Math.abs(rtpDifference) < 0.05 ? 'text-green-400' : 'text-yellow-400'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      {/* Header */}
       <div className="bg-black bg-opacity-40 backdrop-blur-sm border-b border-white border-opacity-10">
         <div className="container mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold text-white flex items-center gap-3">
                 <Trophy className="text-yellow-400" size={40} />
-                Football Betting Simulator
+                Simulated Games
               </h1>
-              <p className="text-blue-200 mt-2">Real-time RTP tracking and betting analytics</p>
+              <p className="text-blue-200 mt-2">Historical RTP tracking and betting analytics</p>
             </div>
-            <Button 
-              onClick={runSimulation} 
-              disabled={loading}
-              size="lg"
-              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold shadow-lg"
-            >
-              {loading ? 'Simulating...' : '⚽ Run New Simulation'}
-            </Button>
+            <div className="flex gap-3 items-center">
+              <div className="flex gap-2 items-center bg-black bg-opacity-30 px-4 py-2 rounded-lg border border-white border-opacity-10">
+                <Button 
+                  onClick={() => setAutoRefresh(!autoRefresh)} 
+                  variant="outline"
+                  size="sm"
+                  className={`${autoRefresh ? 'border-green-400 text-green-400' : 'border-gray-400 text-gray-400'}`}
+                >
+                  {autoRefresh ? <Pause size={16} className="mr-1" /> : <Play size={16} className="mr-1" />}
+                  {autoRefresh ? 'Stop' : 'Auto'}
+                </Button>
+                <Select value={refreshInterval.toString()} onValueChange={(val) => setRefreshInterval(Number(val))}>
+                  <SelectTrigger className="w-24 bg-white bg-opacity-10 border-white border-opacity-20 text-white text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3s</SelectItem>
+                    <SelectItem value="5">5s</SelectItem>
+                    <SelectItem value="10">10s</SelectItem>
+                    <SelectItem value="30">30s</SelectItem>
+                    <SelectItem value="60">60s</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button 
+                onClick={fetchAll} 
+                variant="outline"
+                size="lg"
+                className="border-blue-400 text-blue-400 hover:bg-blue-400 hover:text-white"
+              >
+                <RefreshCw size={20} className="mr-2" />
+                Refresh
+              </Button>
+              <Button 
+                onClick={runSimulation} 
+                disabled={loading}
+                size="lg"
+                className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold shadow-lg"
+              >
+                {loading ? 'Simulating...' : '⚽ Run New Simulation'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="container mx-auto px-6 py-8">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {/* Configured RTP */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           <Card className="bg-gradient-to-br from-blue-500 to-blue-700 border-none text-white">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <Target size={24} />
+              <CardTitle className="flex items-center gap-2 text-white text-sm">
+                <Target size={20} />
                 Configured RTP
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-5xl font-bold">{(rtp * 100).toFixed(1)}%</div>
-              <div className="mt-4 flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="secondary"
-                  onClick={() => updateRtp(0.96)}
-                  className="flex-1"
-                >
-                  96%
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="secondary"
-                  onClick={() => updateRtp(0.92)}
-                  className="flex-1"
-                >
-                  92%
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="secondary"
-                  onClick={() => updateRtp(0.88)}
-                  className="flex-1"
-                >
-                  88%
-                </Button>
+              <div className="text-4xl font-bold">{(rtp * 100).toFixed(1)}%</div>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => updateRtp(0.96)} className="flex-1 text-xs">96%</Button>
+                <Button size="sm" variant="secondary" onClick={() => updateRtp(0.92)} className="flex-1 text-xs">92%</Button>
+                <Button size="sm" variant="secondary" onClick={() => updateRtp(0.88)} className="flex-1 text-xs">88%</Button>
               </div>
             </CardContent>
           </Card>
 
-          {/* Actual RTP */}
           <Card className="bg-gradient-to-br from-purple-500 to-purple-700 border-none text-white">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <Percent size={24} />
+              <CardTitle className="flex items-center gap-2 text-white text-sm">
+                <Percent size={20} />
                 Actual RTP
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-5xl font-bold">{(stats.actualRtp * 100).toFixed(1)}%</div>
+              <div className="text-4xl font-bold">{((stats?.actual_rtp || 0) * 100).toFixed(1)}%</div>
               <div className={`mt-2 flex items-center gap-2 ${rtpColor}`}>
-                {rtpDifference >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
-                <span className="font-semibold">
+                {rtpDifference >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                <span className="font-semibold text-xs">
                   {rtpDifference >= 0 ? '+' : ''}{(rtpDifference * 100).toFixed(1)}% vs target
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Total Bets */}
           <Card className="bg-gradient-to-br from-green-500 to-green-700 border-none text-white">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <Activity size={24} />
-                Total Bets
+              <CardTitle className="flex items-center gap-2 text-white text-sm">
+                <Database size={20} />
+                Total Simulations
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-5xl font-bold">{stats.totalBets}</div>
-              <div className="mt-2 flex gap-3">
-                <div className="flex items-center gap-1">
-                  <Badge variant="secondary" className="bg-green-900">
-                    ✓ {stats.wonBets}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Badge variant="secondary" className="bg-red-900">
-                    ✗ {stats.lostBets}
-                  </Badge>
-                </div>
+              <div className="text-4xl font-bold">{stats?.total_simulations || 0}</div>
+              <div className="mt-2 flex gap-2 text-xs">
+                <Badge variant="secondary" className="bg-green-900">✓ {stats?.won_slips || 0}</Badge>
+                <Badge variant="secondary" className="bg-red-900">✗ {stats?.lost_slips || 0}</Badge>
               </div>
             </CardContent>
           </Card>
 
-          {/* Profit/Loss */}
-          <Card className={`bg-gradient-to-br ${stats.totalPayout - stats.totalStaked >= 0 ? 'from-emerald-500 to-emerald-700' : 'from-red-500 to-red-700'} border-none text-white`}>
+          <Card className="bg-gradient-to-br from-orange-500 to-orange-700 border-none text-white">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <BarChart3 size={24} />
+              <CardTitle className="flex items-center gap-2 text-white text-sm">
+                <Activity size={20} />
+                Total Bets
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-bold">{stats?.total_bets || 0}</div>
+              <div className="mt-2 text-xs opacity-90">
+                Staked: ${(stats?.total_staked || 0).toFixed(0)}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={`bg-gradient-to-br ${(stats?.house_profit || 0) >= 0 ? 'from-emerald-500 to-emerald-700' : 'from-red-500 to-red-700'} border-none text-white`}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white text-sm">
+                <BarChart3 size={20} />
                 House Profit
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-5xl font-bold">
-                ${(stats.totalStaked - stats.totalPayout).toFixed(2)}
+              <div className="text-4xl font-bold">
+                ${(stats?.house_profit || 0).toFixed(0)}
               </div>
-              <div className="mt-2 text-sm opacity-90">
-                Staked: ${stats.totalStaked.toFixed(2)} | Paid: ${stats.totalPayout.toFixed(2)}
+              <div className="mt-2 text-xs opacity-90">
+                Paid: ${(stats?.total_paid_out || 0).toFixed(0)}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Recent Simulations */}
+        {rtpTrends.length > 0 && (
+          <Card className="bg-white bg-opacity-10 backdrop-blur-md border-white border-opacity-20 mb-8">
+            <CardHeader>
+              <CardTitle className="text-white text-2xl">RTP Trends Over Time</CardTitle>
+              <CardDescription className="text-blue-200">
+                Configured vs Actual RTP across {rtpTrends.length} simulations
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={rtpTrends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <XAxis 
+                    dataKey="simulation_number" 
+                    stroke="rgba(255,255,255,0.7)"
+                    label={{ value: 'Simulation Number', position: 'insideBottom', offset: -5, fill: 'rgba(255,255,255,0.7)' }}
+                  />
+                  <YAxis 
+                    stroke="rgba(255,255,255,0.7)"
+                    label={{ value: 'RTP', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.7)' }}
+                  />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.2)' }}
+                    labelStyle={{ color: '#fff' }}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="configured_rtp" stroke="#3b82f6" name="Configured RTP" strokeWidth={2} />
+                  <Line type="monotone" dataKey="cumulative_actual_rtp" stroke="#a855f7" name="Cumulative Actual RTP" strokeWidth={2} />
+                  <Line type="monotone" dataKey="rolling_window_rtp" stroke="#10b981" name="Rolling Window RTP (10)" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="bg-white bg-opacity-10 backdrop-blur-md border-white border-opacity-20">
           <CardHeader>
-            <CardTitle className="text-white text-2xl">Recent Simulations</CardTitle>
-            <CardDescription className="text-blue-200">
-              Latest {simulations.length} match simulations with betting outcomes
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-2xl">Simulation History</CardTitle>
+                <CardDescription className="text-blue-200">
+                  All simulations from the database
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="Search by team..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-64 bg-white bg-opacity-10 border-white border-opacity-20 text-white placeholder:text-gray-400"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                <Button onClick={handleSearch} size="sm" variant="outline" className="border-blue-400 text-blue-400">
+                  <Search size={16} />
+                </Button>
+                <Button 
+                  onClick={() => { setFilterWon(null); setSearchTerm(''); fetchHistory(); }} 
+                  size="sm" 
+                  variant="outline"
+                  className="border-gray-400 text-gray-400"
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <Badge 
+                className={`cursor-pointer ${filterWon === true ? 'bg-green-600' : 'bg-gray-600'}`}
+                onClick={() => { setFilterWon(true); setTimeout(fetchHistory, 0); }}
+              >
+                Won Slips
+              </Badge>
+              <Badge 
+                className={`cursor-pointer ${filterWon === false ? 'bg-red-600' : 'bg-gray-600'}`}
+                onClick={() => { setFilterWon(false); setTimeout(fetchHistory, 0); }}
+              >
+                Lost Slips
+              </Badge>
+              <Badge 
+                className={`cursor-pointer ${filterWon === null ? 'bg-blue-600' : 'bg-gray-600'}`}
+                onClick={() => { setFilterWon(null); setTimeout(fetchHistory, 0); }}
+              >
+                All
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent>
-            {simulations.length === 0 ? (
+            {history.length === 0 ? (
               <div className="text-center py-12 text-white opacity-60">
-                <Trophy size={64} className="mx-auto mb-4 opacity-30" />
-                <p className="text-xl">No simulations yet</p>
-                <p className="text-sm mt-2">Click "Run New Simulation" to get started</p>
+                <Database size={64} className="mx-auto mb-4 opacity-30" />
+                <p className="text-xl">No simulations found</p>
+                <p className="text-sm mt-2">Run a simulation to see data here</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {simulations.map((sim, idx) => (
-                  <div 
-                    key={idx}
-                    className="bg-white bg-opacity-5 rounded-lg p-6 border border-white border-opacity-10 hover:bg-opacity-10 transition-all"
-                  >
-                    {/* Match Header */}
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                        <div className="text-2xl font-bold text-white">
-                          {sim.home_team} vs {sim.away_team}
-                        </div>
-                        <Badge variant="secondary" className="text-lg">
-                          {sim.final_score[sim.home_team]} - {sim.final_score[sim.away_team]}
-                        </Badge>
-                      </div>
-                      <Badge 
-                        className={`text-lg px-4 py-1 ${sim.bet_slip_won ? 'bg-green-600' : 'bg-red-600'}`}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white border-opacity-10 hover:bg-transparent">
+                      <TableHead className="text-blue-200">ID</TableHead>
+                      <TableHead className="text-blue-200">Match</TableHead>
+                      <TableHead className="text-blue-200">Score</TableHead>
+                      <TableHead className="text-blue-200">Result</TableHead>
+                      <TableHead className="text-blue-200">Stake</TableHead>
+                      <TableHead className="text-blue-200">Payout</TableHead>
+                      <TableHead className="text-blue-200">Profit</TableHead>
+                      <TableHead className="text-blue-200">RTP</TableHead>
+                      <TableHead className="text-blue-200">Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {history.map((sim) => (
+                      <TableRow 
+                        key={sim.id} 
+                        className="border-white border-opacity-10 hover:bg-white hover:bg-opacity-5"
                       >
-                        {sim.bet_slip_won ? '✓ Slip Won' : '✗ Slip Lost'}
-                      </Badge>
-                    </div>
-
-                    <Separator className="my-4 bg-white opacity-10" />
-
-                    {/* Bet Results */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      {sim.bet_results.map((bet, betIdx) => (
-                        <div 
-                          key={betIdx}
-                          className={`p-4 rounded-lg border-2 ${bet.won ? 'border-green-500 bg-green-500 bg-opacity-10' : 'border-red-500 bg-red-500 bg-opacity-10'}`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-semibold text-white">{bet.market}</span>
-                            <Badge variant={bet.won ? "default" : "destructive"} className="font-bold">
-                              {bet.outcome}
-                            </Badge>
-                          </div>
-                          {bet.stake !== null && (
-                            <div className="text-sm space-y-1 text-blue-100">
-                              <div>Stake: ${bet.stake.toFixed(2)} @ {bet.odds}x</div>
-                              {bet.won && <div className="font-bold text-green-300">Payout: ${bet.payout?.toFixed(2)} (+${bet.profit?.toFixed(2)})</div>}
-                              {!bet.won && <div className="font-bold text-red-300">Lost ${bet.stake.toFixed(2)}</div>}
-                            </div>
-                          )}
-                          {bet.stake === null && (
-                            <div className="text-sm text-blue-100">
-                              {bet.won ? '✓ Prediction correct' : '✗ Prediction incorrect'}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Totals */}
-                    {sim.total_stake !== null && (
-                      <div className="bg-black bg-opacity-30 rounded-lg p-4 flex justify-between items-center">
-                        <div className="text-white">
-                          <div className="text-sm opacity-75">Total Stake</div>
-                          <div className="text-2xl font-bold">${sim.total_stake.toFixed(2)}</div>
-                        </div>
-                        <div className="text-white">
-                          <div className="text-sm opacity-75">Total Payout</div>
-                          <div className="text-2xl font-bold">${sim.total_payout?.toFixed(2)}</div>
-                        </div>
-                        <div className={`${sim.total_profit && sim.total_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          <div className="text-sm opacity-75">Profit/Loss</div>
-                          <div className="text-2xl font-bold">
-                            {sim.total_profit && sim.total_profit >= 0 ? '+' : ''}${sim.total_profit?.toFixed(2)}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Metadata */}
-                    <div className="mt-4 flex gap-4 text-sm text-blue-200">
-                      <span>Seed: {sim.simulation_metadata.seed}</span>
-                      <span>•</span>
-                      <span>Events: {sim.simulation_metadata.total_events}</span>
-                      <span>•</span>
-                      <span>Volatility: {sim.simulation_metadata.volatility}</span>
-                      <span>•</span>
-                      <span>RTP: {(sim.simulation_metadata.rtp * 100).toFixed(0)}%</span>
-                    </div>
-                  </div>
-                ))}
+                        <TableCell className="text-white font-mono text-xs">#{sim.id}</TableCell>
+                        <TableCell className="text-white">
+                          <div className="text-sm font-semibold">{sim.home_team} vs {sim.away_team}</div>
+                          <div className="text-xs text-gray-400">{sim.number_of_bets} bets</div>
+                        </TableCell>
+                        <TableCell className="text-white">
+                          <Badge variant="secondary">{sim.home_score} - {sim.away_score}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={sim.bet_slip_won ? 'bg-green-600' : 'bg-red-600'}>
+                            {sim.bet_slip_won ? '✓ Won' : '✗ Lost'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-white text-right">
+                          {sim.total_stake !== null ? `$${sim.total_stake.toFixed(2)}` : '-'}
+                        </TableCell>
+                        <TableCell className="text-white text-right">
+                          {sim.total_payout !== null ? `$${sim.total_payout.toFixed(2)}` : '-'}
+                        </TableCell>
+                        <TableCell className={`text-right font-semibold ${(sim.total_profit || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {sim.total_profit !== null ? `${(sim.total_profit >= 0 ? '+' : '')}$${sim.total_profit.toFixed(2)}` : '-'}
+                        </TableCell>
+                        <TableCell className="text-white text-right">
+                          {(sim.configured_rtp * 100).toFixed(0)}%
+                        </TableCell>
+                        <TableCell className="text-gray-400 text-xs">
+                          {new Date(sim.created_at).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             )}
           </CardContent>
