@@ -256,13 +256,10 @@ def get_player_stats(user_id: str) -> Dict[str, Any]:
                 COUNT(*) as total_simulations,
                 SUM(CASE WHEN bet_slip_won = 1 THEN 1 ELSE 0 END) as won_slips,
                 SUM(CASE WHEN bet_slip_won = 0 THEN 1 ELSE 0 END) as lost_slips,
-                SUM(total_stake) as total_staked,
-                SUM(total_payout) as total_paid_out,
-                SUM(total_profit) as total_player_profit,
                 SUM(number_of_bets) as total_bets,
                 AVG(configured_rtp) as avg_configured_rtp
             FROM simulations
-            WHERE user_id = ? AND total_stake IS NOT NULL
+            WHERE user_id = ?
         """, (user_id,))
         
         row = cursor.fetchone()
@@ -273,6 +270,8 @@ def get_player_stats(user_id: str) -> Dict[str, Any]:
                 'total_simulations': 0,
                 'won_slips': 0,
                 'lost_slips': 0,
+                'win_rate': 0,
+                'win_loss_rtp': 0,
                 'total_bets': 0,
                 'total_staked': 0,
                 'total_paid_out': 0,
@@ -283,8 +282,26 @@ def get_player_stats(user_id: str) -> Dict[str, Any]:
                 'rtp_difference': 0
             }
         
-        total_staked = float(row['total_staked']) if row['total_staked'] else 0
-        total_paid_out = float(row['total_paid_out']) if row['total_paid_out'] else 0
+        total_simulations = row['total_simulations']
+        won_slips = row['won_slips']
+        lost_slips = row['lost_slips']
+        
+        win_loss_rtp = (won_slips / total_simulations * 100) if total_simulations > 0 else 0
+        win_rate = (won_slips / total_simulations * 100) if total_simulations > 0 else 0
+        
+        cursor.execute("""
+            SELECT 
+                SUM(total_stake) as total_staked,
+                SUM(total_payout) as total_paid_out,
+                SUM(total_profit) as total_player_profit
+            FROM simulations
+            WHERE user_id = ? AND total_stake IS NOT NULL
+        """, (user_id,))
+        
+        stake_row = cursor.fetchone()
+        
+        total_staked = float(stake_row['total_staked']) if stake_row['total_staked'] else 0
+        total_paid_out = float(stake_row['total_paid_out']) if stake_row['total_paid_out'] else 0
         
         actual_rtp = (total_paid_out / total_staked) if total_staked > 0 else 0
         house_profit = total_staked - total_paid_out
@@ -292,14 +309,16 @@ def get_player_stats(user_id: str) -> Dict[str, Any]:
         
         return {
             'user_id': user_id,
-            'total_simulations': row['total_simulations'],
-            'won_slips': row['won_slips'],
-            'lost_slips': row['lost_slips'],
+            'total_simulations': total_simulations,
+            'won_slips': won_slips,
+            'lost_slips': lost_slips,
+            'win_rate': win_rate,
+            'win_loss_rtp': win_loss_rtp,
             'total_bets': row['total_bets'],
             'total_staked': total_staked,
             'total_paid_out': total_paid_out,
             'house_profit': house_profit,
-            'total_player_profit': float(row['total_player_profit']) if row['total_player_profit'] else 0,
+            'total_player_profit': float(stake_row['total_player_profit']) if stake_row['total_player_profit'] else 0,
             'actual_rtp': actual_rtp,
             'avg_configured_rtp': avg_configured_rtp,
             'rtp_difference': actual_rtp - avg_configured_rtp
@@ -315,11 +334,11 @@ def get_all_players() -> List[Dict[str, Any]]:
                 user_id,
                 COUNT(*) as total_simulations,
                 SUM(CASE WHEN bet_slip_won = 1 THEN 1 ELSE 0 END) as won_slips,
+                SUM(CASE WHEN bet_slip_won = 0 THEN 1 ELSE 0 END) as lost_slips,
                 SUM(total_stake) as total_staked,
                 SUM(total_payout) as total_paid_out,
                 MAX(created_at) as last_simulation
             FROM simulations
-            WHERE total_stake IS NOT NULL
             GROUP BY user_id
             ORDER BY last_simulation DESC
         """)
@@ -328,14 +347,23 @@ def get_all_players() -> List[Dict[str, Any]]:
         
         players = []
         for row in rows:
+            total_simulations = row['total_simulations']
+            won_slips = row['won_slips']
+            
+            win_loss_rtp = (won_slips / total_simulations * 100) if total_simulations > 0 else 0
+            win_rate = (won_slips / total_simulations * 100) if total_simulations > 0 else 0
+            
             total_staked = float(row['total_staked']) if row['total_staked'] else 0
             total_paid_out = float(row['total_paid_out']) if row['total_paid_out'] else 0
             actual_rtp = (total_paid_out / total_staked) if total_staked > 0 else 0
             
             players.append({
                 'user_id': row['user_id'],
-                'total_simulations': row['total_simulations'],
-                'won_slips': row['won_slips'],
+                'total_simulations': total_simulations,
+                'won_slips': won_slips,
+                'lost_slips': row['lost_slips'],
+                'win_rate': win_rate,
+                'win_loss_rtp': win_loss_rtp,
                 'total_staked': total_staked,
                 'total_paid_out': total_paid_out,
                 'actual_rtp': actual_rtp,
