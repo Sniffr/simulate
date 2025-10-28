@@ -36,26 +36,42 @@ class MatchEvent(BaseModel):
 
 
 class ScoreProbability(BaseModel):
-    home_score: int
-    away_score: int
-    probability: float = Field(ge=0.0, le=1.0)
+    home_score: int = Field(example=2)
+    away_score: int = Field(example=1)
+    probability: float = Field(ge=0.0, le=1.0, example=0.18)
 
 
 class BetSelection(BaseModel):
-    market: MarketType
-    outcome: str
-    stake: Optional[float] = Field(default=None, gt=0, description="Amount wagered on this bet")
-    odds: Optional[float] = Field(default=None, gt=1.0, description="Payout multiplier if bet wins")
+    market: MarketType = Field(example="1X2")
+    outcome: str = Field(example="1")
+    stake: Optional[float] = Field(default=None, gt=0, description="Amount wagered on this bet", example=20.0)
+    odds: Optional[float] = Field(default=None, gt=1.0, description="Payout multiplier if bet wins", example=2.1)
 
 
 class MatchSimulationRequest(BaseModel):
-    user_id: str = Field(description="Unique identifier for the player/user")
-    home_team: str
-    away_team: str
-    score_probabilities: List[ScoreProbability]
-    bet_slip: List[BetSelection] = Field(min_length=1, description="List of bets placed")
-    volatility: str = Field(default="medium", description="low, medium, or high")
-    seed: Optional[int] = None
+    user_id: str = Field(description="Unique identifier for the player/user", example="player123")
+    home_team: str = Field(example="Manchester United")
+    away_team: str = Field(example="Arsenal")
+    score_probabilities: List[ScoreProbability] = Field(
+        description="List of possible score outcomes with probabilities (can sum to more or less than 1.0)",
+        example=[
+            {"home_score": 1, "away_score": 0, "probability": 0.15},
+            {"home_score": 2, "away_score": 1, "probability": 0.18},
+            {"home_score": 1, "away_score": 1, "probability": 0.15},
+            {"home_score": 0, "away_score": 0, "probability": 0.10},
+            {"home_score": 0, "away_score": 1, "probability": 0.10}
+        ]
+    )
+    bet_slip: List[BetSelection] = Field(
+        min_length=1, 
+        description="List of bets placed (all must win for bet_slip_won=true)",
+        example=[
+            {"market": "1X2", "outcome": "1", "stake": 20.0, "odds": 2.1},
+            {"market": "over_under", "outcome": "over_2.5"}
+        ]
+    )
+    volatility: str = Field(default="medium", description="low, medium, or high", example="medium")
+    seed: Optional[int] = Field(default=None, description="Random seed for reproducible results", example=12345)
 
 
 class BetResult(BaseModel):
@@ -85,7 +101,7 @@ class MatchSimulationResponse(BaseModel):
 
 
 class RTPConfig(BaseModel):
-    rtp: float = Field(ge=0.0, le=1.0, description="Return to Player percentage")
+    rtp: float = Field(ge=0.0, le=1.0, description="Return to Player percentage (0.0-1.0, e.g., 0.96 = 96%)", example=0.96)
 
 
 class Market(BaseModel):

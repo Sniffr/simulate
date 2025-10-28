@@ -1,17 +1,20 @@
 # Football Match Betting Simulation API
 
-A probabilistic football match simulator with betting mechanics based on RTP (Return to Player) principles. This system simulates football matches and evaluates bets with configurable house edge.
+A probabilistic football match simulator with betting mechanics based on RTP (Return to Player) principles. This system simulates football matches and evaluates bets with configurable house edge and per-player tracking.
 
 ## Features
 
 - **Probabilistic Match Simulation**: Generates realistic play-by-play match events based on provided score probabilities
+- **Per-Player RTP Tracking**: Independent RTP calculation for each player with their betting history
 - **RTP Configuration**: Adjustable Return to Player percentage (50-100%) to control house edge
-- **Betting Markets**: Support for 1X2, Over/Under, and Both Teams to Score
+- **Betting Markets**: Support for 1X2, Over/Under, Both Teams to Score, and Correct Score
 - **Bet Slip Functionality**: Place multiple bets at once (like a real betting slip)
 - **Optional Stakes & Odds**: Flexible betting with or without monetary stakes
 - **Reproducible Simulations**: Seed-based RNG for consistent results
 - **Match Statistics**: Detailed stats including possession, shots, corners, and fouls
-- **Beautiful Dashboard**: Real-time RTP tracking and simulation visualization
+- **Beautiful Dashboard**: Real-time RTP tracking, player statistics, and simulation visualization
+- **Player Statistics**: Track individual player performance, win rates, and actual RTP
+- **Overround/Underround Support**: Score probabilities don't need to sum exactly to 1.0
 
 ## Live URLs
 
@@ -24,12 +27,15 @@ A probabilistic football match simulator with betting mechanics based on RTP (Re
 The dashboard provides a stunning visual interface to interact with the simulation system:
 
 - **Real-time RTP Tracking**: Compare configured RTP vs actual RTP across all simulations
+- **Player Statistics**: Individual player tracking with win rates, total staked, and actual RTP per player
 - **Live Statistics**: Total bets, win/loss ratio, house profit
 - **Interactive Controls**: One-click RTP adjustment (96%, 92%, 88%)
-- **Simulation History**: View up to 20 recent simulations with full bet details
+- **Auto-Refresh**: Configurable auto-refresh with intervals (5s, 10s, 30s, 60s)
+- **Simulation History**: View recent simulations with full bet details and filtering
 - **Beautiful UI**: Gradient design with dark theme and smooth animations
 - **Bet Visualization**: Color-coded bet results with detailed payout information
 - **Match Details**: Score, events, metadata for each simulation
+- **Per-Player Filtering**: Filter simulations and statistics by player ID
 
 ## Quick Start
 
@@ -45,6 +51,7 @@ curl -X POST https://app-pqyimwto.fly.dev/api/rtp \
 curl -X POST https://app-pqyimwto.fly.dev/api/simulate \
   -H "Content-Type: application/json" \
   -d '{
+  "user_id": "player123",
   "home_team": "Manchester",
   "away_team": "Arsenal",
   "score_probabilities": [
@@ -75,17 +82,25 @@ curl -X POST https://app-pqyimwto.fly.dev/api/simulate \
 - `GET /api/rtp` - Get current RTP configuration
 - `POST /api/rtp` - Set RTP percentage
 - `GET /api/markets` - Get supported betting markets
-- `POST /api/simulate` - Simulate a match with bets
+- `POST /api/simulate` - Simulate a match with bets (requires `user_id`)
+- `GET /api/history` - Get simulation history with filtering (by user_id, team, won/lost)
+- `GET /api/stats` - Get overall simulation statistics
+- `GET /api/rtp-trends` - Get RTP trends over time
+- `GET /api/players` - Get list of all players with statistics
+- `GET /api/players/{user_id}/stats` - Get detailed statistics for specific player
 - `GET /api/example` - Get example request payloads
 
 ## How RTP Works
 
-RTP (Return to Player) determines the house edge:
+RTP (Return to Player) determines the house edge and is calculated **per player**:
 
 - **96% RTP** = Players get back 96% of stakes over time, house keeps 4%
 - The system adjusts match probabilities **before** simulation to ensure the house edge
-- Each bet's win probability is reduced by (100% - RTP)
+- Each bet's win probability is multiplied by the RTP (e.g., 50% fair chance × 96% RTP = 48% actual chance)
 - Over many bets, the house maintains its edge probabilistically
+- **Per-Player Tracking**: Each player's actual RTP is calculated independently based on their betting history
+- The system uses the formula: `Actual RTP = (Total Payout / Total Stake) × 100%` for each player
+- Win/loss ratio is directly affected by RTP - lower RTP means more losses for the player
 
 ## Betting Markets
 
@@ -102,6 +117,9 @@ RTP (Return to Player) determines the house edge:
 - `"yes"` - Both teams score
 - `"no"` - One or both teams don't score
 
+### Correct Score
+- `"1-0"`, `"2-1"`, `"3-2"` etc. - Exact final score prediction
+
 ## Bet Slip Logic
 
 The bet slip works like an accumulator/parlay:
@@ -114,6 +132,8 @@ The bet slip works like an accumulator/parlay:
 
 ```json
 {
+  "home_team": "Manchester",
+  "away_team": "Arsenal",
   "final_score": {"Manchester": 2, "Arsenal": 1},
   "bet_slip_won": true,
   "bet_results": [
@@ -142,7 +162,36 @@ The bet slip works like an accumulator/parlay:
   "total_payout": 42.0,
   "total_profit": 22.0,
   "events": [...],
-  "match_stats": {...}
+  "match_stats": {...},
+  "simulation_metadata": {
+    "rtp": 0.96,
+    "volatility": "medium",
+    "seed": 12345,
+    "total_events": 45,
+    "number_of_bets": 2
+  }
+}
+```
+
+## Player Statistics Example
+
+Get statistics for a specific player:
+```bash
+curl https://app-pqyimwto.fly.dev/api/players/player123/stats
+```
+
+Response:
+```json
+{
+  "user_id": "player123",
+  "total_simulations": 50,
+  "won_slips": 22,
+  "lost_slips": 28,
+  "win_rate": 44.0,
+  "total_staked": 1000.0,
+  "total_paid_out": 920.0,
+  "actual_rtp": 92.0,
+  "total_profit": -80.0
 }
 ```
 
@@ -166,8 +215,9 @@ poetry run pytest
 
 ## Documentation
 
-- [Production API Guide](PRODUCTION_API_GUIDE.md) - Complete API documentation
-- [Updated API Examples](UPDATED_API_EXAMPLES.md) - Request/response examples
+- [Complete API Documentation](API_DOCUMENTATION.md) - Full API reference with all endpoints and examples
+- [Quick Start Guide](QUICKSTART.md) - Get started in 5 minutes with Docker
+- [Deployment Guide](DEPLOYMENT.md) - Production deployment instructions
 - [Reference Document](Simulated+Gambling_+Logic+and+Math.rtf) - Original gambling mathematics reference
 
 ## Tech Stack
