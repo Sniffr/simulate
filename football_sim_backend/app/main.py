@@ -2,7 +2,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg
 from typing import Optional
-from app.models import MatchSimulationRequest, MatchSimulationResponse, RTPConfig, Market
+from app.models import (
+    MatchSimulationRequest, MatchSimulationResponse, RTPConfig, Market,
+    MultiBetslipRequest, MultiBetslipResponse, MatchResult, BetSlipSelectionResult, BetSelection
+)
 from app.match_simulator import FootballMatchSimulator
 from app.betting_logic import BettingEngine, get_supported_markets
 from app.database import save_simulation, get_simulations, get_simulation_stats, get_rtp_trends, get_count, get_player_stats, get_all_players
@@ -161,6 +164,182 @@ async def simulate_match(request: MatchSimulationRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/simulate-multi", response_model=MultiBetslipResponse)
+async def simulate_multi_match_betslip(request: MultiBetslipRequest):
+    """
+    Simulate multiple matches with a betslip containing selections from different matches.
+    All selections must win for the betslip to be won. RTP is applied across the entire betslip.
+    """
+    try:
+        global current_rtp
+        
+        if len(request.bet_slip) == 0:
+            raise HTTPException(status_code=400, detail="Bet slip must contain at least one selection")
+        
+        betting_engine = BettingEngine(rtp=current_rtp)
+        from app.rng_engine import FootballRNG
+        rng = FootballRNG(request.seed)
+        
+        match_results = []
+        match_scores = {}
+        
+        for match_data in request.matches:
+            total_probability = sum(sp.probability for sp in match_data.score_probabilities)
+            if total_probability <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Score probabilities for {match_data.home_team} vs {match_data.away_team} must sum to positive number"
+                )
+            
+            selections_for_this_match = [
+                sel for sel in request.bet_slip if sel.match_id == match_data.match_id
+            ]
+            
+            adjusted_probabilities = match_data.score_probabilities
+            for selection in selections_for_this_match:
+                bet_sel = BetSelection(
+                    market=selection.market,
+                    outcome=selection.outcome,
+                    odds=selection.odds
+                )
+                rng_value = rng.next_random()
+                adjusted_probabilities = betting_engine.adjust_probabilities_for_bet(
+                    score_probabilities=adjusted_probabilities,
+                    bet_selection=bet_sel,
+                    rng_value=rng_value
+                )
+            
+            simulator = FootballMatchSimulator(
+                home_team=match_data.home_team,
+                away_team=match_data.away_team,
+                score_probabilities=adjusted_probabilities,
+                rtp=current_rtp,
+                volatility=request.volatility,
+                seed=rng.next_random()
+            )
+            
+            events, stats = simulator.simulate_match()
+            
+            match_result = MatchResult(
+                match_id=match_data.match_id,
+                home_team=match_data.home_team,
+                away_team=match_data.away_team,
+                home_score=simulator.home_score,
+                away_score=simulator.away_score,
+                events=events,
+                match_stats=stats
+            )
+            match_results.append(match_result)
+            match_scores[match_data.match_id] = {
+                'home': simulator.home_score,
+                'away': simulator.away_score,
+                'home_team': match_data.home_team,
+                'away_team': match_data.away_team
+            }
+        
+        bet_results = []
+        for selection in request.bet_slip:
+            if selection.match_id not in match_scores:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Selection references unknown match_id: {selection.match_id}"
+                )
+            
+            scores = match_scores[selection.match_id]
+            
+            bet_sel = BetSelection(
+                market=selection.market,
+                outcome=selection.outcome,
+                odds=selection.odds
+            )
+            
+            result = betting_engine.evaluate_bet(
+                bet_selection=bet_sel,
+                home_team=scores['home_team'],
+                away_team=scores['away_team'],
+                home_score=scores['home'],
+                away_score=scores['away']
+            )
+            
+            bet_result = BetSlipSelectionResult(
+                match_id=selection.match_id,
+                home_team=selection.home_team,
+                away_team=selection.away_team,
+                market=selection.market,
+                outcome=selection.outcome,
+                odds=selection.odds,
+                won=result.won,
+                outcome_occurred=result.outcome_occurred,
+                explanation=result.explanation,
+                home_score=scores['home'],
+                away_score=scores['away']
+            )
+            bet_results.append(bet_result)
+        
+        bet_slip_won = all(result.won for result in bet_results)
+        winning_selections = sum(1 for result in bet_results if result.won)
+        
+        total_odds = 1.0
+        for selection in request.bet_slip:
+            total_odds *= selection.odds
+        
+        if request.stake is not None:
+            potential_payout = request.stake * total_odds
+            actual_payout = potential_payout if bet_slip_won else 0.0
+            profit = actual_payout - request.stake
+        else:
+            potential_payout = None
+            actual_payout = None
+            profit = None
+        
+        response = MultiBetslipResponse(
+            user_id=request.user_id,
+            matches=match_results,
+            bet_results=bet_results,
+            bet_slip_won=bet_slip_won,
+            total_selections=len(bet_results),
+            winning_selections=winning_selections,
+            total_odds=total_odds,
+            stake=request.stake,
+            potential_payout=potential_payout,
+            actual_payout=actual_payout,
+            profit=profit,
+            simulation_metadata={
+                "rtp": current_rtp,
+                "volatility": request.volatility,
+                "seed": rng.get_seed(),
+                "number_of_matches": len(match_results),
+                "number_of_selections": len(bet_results)
+            }
+        )
+        
+        simulation_data = {
+            'user_id': request.user_id,
+            'home_team': ', '.join([m.home_team for m in match_results]),
+            'away_team': ', '.join([m.away_team for m in match_results]),
+            'home_score': match_results[0].home_score if match_results else 0,
+            'away_score': match_results[0].away_score if match_results else 0,
+            'bet_slip_won': bet_slip_won,
+            'total_stake': request.stake,
+            'total_payout': actual_payout,
+            'total_profit': profit,
+            'configured_rtp': current_rtp,
+            'seed': rng.get_seed(),
+            'volatility': request.volatility,
+            'total_events': sum(len(m.events) for m in match_results),
+            'number_of_bets': len(bet_results),
+            'bet_results': [result.dict() for result in bet_results],
+            'events': [event.dict() for event in match_results[0].events] if match_results else [],
+            'match_stats': match_results[0].match_stats if match_results else {}
+        }
+        save_simulation(simulation_data)
+        
+        return response
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/history")
 async def get_simulation_history(
     limit: int = Query(50, ge=1, le=200),
@@ -227,7 +406,7 @@ async def get_player_statistics(user_id: str):
 @app.get("/api/example")
 async def get_example_request():
     return {
-        "single_bet": {
+        "single_match_single_bet": {
             "user_id": "player123",
             "home_team": "Manchester United",
             "away_team": "Girona",
@@ -288,5 +467,58 @@ async def get_example_request():
             ],
             "volatility": "high"
         },
-        "description": "POST any of these examples to /api/simulate. Set RTP first using POST /api/rtp"
+        "multi_match_betslip": {
+            "user_id": "player789",
+            "matches": [
+                {
+                    "match_id": "match_1",
+                    "home_team": "Manchester United",
+                    "away_team": "Arsenal",
+                    "score_probabilities": [
+                        {"home_score": 0, "away_score": 0, "probability": 0.10},
+                        {"home_score": 1, "away_score": 0, "probability": 0.15},
+                        {"home_score": 2, "away_score": 0, "probability": 0.12},
+                        {"home_score": 2, "away_score": 1, "probability": 0.18},
+                        {"home_score": 1, "away_score": 1, "probability": 0.15},
+                        {"home_score": 0, "away_score": 1, "probability": 0.10},
+                        {"home_score": 1, "away_score": 2, "probability": 0.12},
+                        {"home_score": 0, "away_score": 2, "probability": 0.08}
+                    ]
+                },
+                {
+                    "match_id": "match_2",
+                    "home_team": "Crystal Palace",
+                    "away_team": "Brentford",
+                    "score_probabilities": [
+                        {"home_score": 0, "away_score": 0, "probability": 0.12},
+                        {"home_score": 1, "away_score": 0, "probability": 0.18},
+                        {"home_score": 2, "away_score": 1, "probability": 0.20},
+                        {"home_score": 1, "away_score": 1, "probability": 0.18},
+                        {"home_score": 0, "away_score": 1, "probability": 0.12},
+                        {"home_score": 2, "away_score": 2, "probability": 0.10}
+                    ]
+                }
+            ],
+            "bet_slip": [
+                {
+                    "match_id": "match_1",
+                    "home_team": "Manchester United",
+                    "away_team": "Arsenal",
+                    "market": "1X2",
+                    "outcome": "1",
+                    "odds": 2.1
+                },
+                {
+                    "match_id": "match_2",
+                    "home_team": "Crystal Palace",
+                    "away_team": "Brentford",
+                    "market": "1X2",
+                    "outcome": "1",
+                    "odds": 1.95
+                }
+            ],
+            "stake": 100.0,
+            "volatility": "medium"
+        },
+        "description": "POST single match examples to /api/simulate and multi-match examples to /api/simulate-multi. Set RTP first using POST /api/rtp"
     }
