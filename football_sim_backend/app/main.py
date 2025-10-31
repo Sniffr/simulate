@@ -67,10 +67,10 @@ async def simulate_match(request: MatchSimulationRequest):
         
         betting_engine = BettingEngine(rtp=current_rtp)
         
-        from app.database import get_player_stats
-        player_stats = get_player_stats(request.user_id) if request.user_id else None
-        player_total_staked = player_stats['total_staked'] if player_stats else None
-        player_total_payout = player_stats['total_paid_out'] if player_stats else None
+        from app.database import get_simulation_stats
+        house_stats = get_simulation_stats()
+        house_total_staked = house_stats['total_staked'] if house_stats else None
+        house_total_payout = house_stats['total_paid_out'] if house_stats else None
         
         from app.rng_engine import FootballRNG
         temp_rng = FootballRNG(request.seed)
@@ -82,8 +82,8 @@ async def simulate_match(request: MatchSimulationRequest):
                 score_probabilities=adjusted_probabilities,
                 bet_selection=bet,
                 rng_value=rng_value,
-                player_total_staked=player_total_staked,
-                player_total_payout=player_total_payout
+                house_total_staked=house_total_staked,
+                house_total_payout=house_total_payout
             )
         
         simulator = FootballMatchSimulator(

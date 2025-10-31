@@ -19,23 +19,24 @@ class BettingEngine:
         score_probabilities: List[ScoreProbability],
         bet_selection: BetSelection,
         rng_value: float,
-        player_total_staked: Optional[float] = None,
-        player_total_payout: Optional[float] = None
+        house_total_staked: Optional[float] = None,
+        house_total_payout: Optional[float] = None
     ) -> List[ScoreProbability]:
         """
-        Adjust probabilities to control RTP using pooled RTP balancing.
+        Adjust probabilities to control RTP using GLOBAL house bankroll.
         
-        This implements a balanced RTP system:
-        - If player's current RTP is below target, increase win probability
-        - If player's current RTP is above target, decrease win probability
-        - This ensures RTP converges to target over many bets
+        This implements a GLOBAL RTP system:
+        - RTP is calculated across ALL players combined
+        - If house RTP < target (paying out too much): decrease win probabilities
+        - If house RTP > target (keeping too much): increase win probabilities
+        - Target: if 100k staked across all players, ~96k should be paid out
         
         Args:
             score_probabilities: List of possible score outcomes
             bet_selection: The bet being placed
             rng_value: Random number 0-1 for determining outcome
-            player_total_staked: Player's total staked amount (for RTP balancing)
-            player_total_payout: Player's total payout amount (for RTP balancing)
+            house_total_staked: Total staked across ALL players (for global RTP)
+            house_total_payout: Total payout across ALL players (for global RTP)
         """
         favorable_scores = []
         unfavorable_scores = []
@@ -51,9 +52,9 @@ class BettingEngine:
         
         total_favorable_prob = sum(sp.probability for sp in favorable_scores)
         
-        rtp_adjustment = self._calculate_rtp_adjustment(
-            player_total_staked, 
-            player_total_payout,
+        rtp_adjustment = self._calculate_global_rtp_adjustment(
+            house_total_staked, 
+            house_total_payout,
             bet_selection.stake
         )
         
@@ -164,35 +165,41 @@ class BettingEngine:
             explanation=explanation
         )
     
-    def _calculate_rtp_adjustment(
+    def _calculate_global_rtp_adjustment(
         self,
-        player_total_staked: Optional[float],
-        player_total_payout: Optional[float],
+        house_total_staked: Optional[float],
+        house_total_payout: Optional[float],
         current_stake: Optional[float]
     ) -> float:
         """
-        Calculate RTP adjustment factor based on player's historical performance.
+        Calculate RTP adjustment factor based on GLOBAL house performance.
+        
+        This ensures the HOUSE maintains the configured edge across ALL players.
         
         Returns a multiplier to apply to win probability:
-        - If player RTP < target RTP: return value > 1.0 (increase win chance)
-        - If player RTP > target RTP: return value < 1.0 (decrease win chance)
-        - If no history: return self.rtp (normal RTP)
+        - If house is paying out TOO MUCH (current RTP > target): return < 1.0 (decrease win chance)
+        - If house is keeping TOO MUCH (current RTP < target): return > 1.0 (increase win chance)
+        - If no history: return self.rtp (standard probability)
+        
+        Example: Target RTP = 96%
+        - If 100k staked and 98k paid out (98% RTP): house needs to reduce wins
+        - If 100k staked and 92k paid out (92% RTP): house needs to increase wins
         """
-        if player_total_staked is None or player_total_payout is None:
+        if house_total_staked is None or house_total_payout is None:
             return self.rtp
         
-        if player_total_staked < 10:
+        if house_total_staked < 100:
             return self.rtp
         
-        current_rtp = player_total_payout / player_total_staked if player_total_staked > 0 else 0
+        current_house_rtp = house_total_payout / house_total_staked if house_total_staked > 0 else 0
         
-        rtp_diff = self.rtp - current_rtp
+        rtp_diff = self.rtp - current_house_rtp
         
-        adjustment_strength = 0.3
+        adjustment_strength = 0.5
         
         adjustment = 1.0 + (rtp_diff * adjustment_strength)
         
-        adjustment = max(0.5, min(1.5, adjustment))
+        adjustment = max(0.3, min(1.7, adjustment))
         
         return adjustment
     
