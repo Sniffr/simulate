@@ -31,6 +31,9 @@ interface Player {
   user_id: string
   total_simulations: number
   won_slips: number
+  lost_slips: number
+  win_rate: number
+  win_loss_rtp: number
   total_staked: number
   total_paid_out: number
   actual_rtp: number
@@ -42,6 +45,8 @@ interface PlayerStats {
   total_simulations: number
   won_slips: number
   lost_slips: number
+  win_rate: number
+  win_loss_rtp: number
   total_bets: number
   total_staked: number
   total_paid_out: number
@@ -437,10 +442,9 @@ function App() {
                     <TableRow className="border-white border-opacity-10 hover:bg-transparent">
                       <TableHead className="text-blue-200">Player ID</TableHead>
                       <TableHead className="text-blue-200">Simulations</TableHead>
-                      <TableHead className="text-blue-200">Won</TableHead>
-                      <TableHead className="text-blue-200">Total Staked</TableHead>
-                      <TableHead className="text-blue-200">Total Payout</TableHead>
-                      <TableHead className="text-blue-200">Player RTP</TableHead>
+                      <TableHead className="text-blue-200">Won / Lost</TableHead>
+                      <TableHead className="text-blue-200">Win/Loss RTP</TableHead>
+                      <TableHead className="text-blue-200">Stake RTP</TableHead>
                       <TableHead className="text-blue-200">Last Activity</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -457,17 +461,18 @@ function App() {
                         <TableCell className="text-white font-semibold">{player.user_id}</TableCell>
                         <TableCell className="text-white">{player.total_simulations}</TableCell>
                         <TableCell>
-                          <Badge className="bg-green-600">{player.won_slips}</Badge>
-                        </TableCell>
-                        <TableCell className="text-white text-right">
-                          ${player.total_staked.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="text-white text-right">
-                          ${player.total_paid_out.toFixed(2)}
+                          <span className="text-green-400 font-bold">{player.won_slips}</span>
+                          <span className="text-gray-400"> / </span>
+                          <span className="text-red-400 font-bold">{player.lost_slips}</span>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Badge className={player.actual_rtp >= 0.96 ? 'bg-green-600' : player.actual_rtp >= 0.92 ? 'bg-yellow-600' : 'bg-red-600'}>
-                            {(player.actual_rtp * 100).toFixed(1)}%
+                          <Badge className={player.win_loss_rtp >= 50 ? 'bg-green-600' : player.win_loss_rtp >= 40 ? 'bg-yellow-600' : 'bg-red-600'}>
+                            {player.win_loss_rtp.toFixed(1)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="secondary" className="text-xs">
+                            {player.total_staked > 0 ? `${(player.actual_rtp * 100).toFixed(1)}%` : 'N/A'}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-gray-400 text-xs">
@@ -490,19 +495,31 @@ function App() {
                       <div className="text-white text-2xl font-bold">{playerStats.total_simulations}</div>
                     </div>
                     <div>
-                      <div className="text-gray-400 text-sm">Win Rate</div>
+                      <div className="text-gray-400 text-sm">Won / Lost</div>
                       <div className="text-white text-2xl font-bold">
-                        {((playerStats.won_slips / playerStats.total_simulations) * 100).toFixed(1)}%
+                        <span className="text-green-400">{playerStats.won_slips}</span> / <span className="text-red-400">{playerStats.lost_slips}</span>
                       </div>
                     </div>
                     <div>
-                      <div className="text-gray-400 text-sm">Total Profit/Loss</div>
+                      <div className="text-gray-400 text-sm">Win/Loss RTP</div>
+                      <div className="text-white text-2xl font-bold">
+                        {playerStats.win_loss_rtp.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Win Rate</div>
+                      <div className="text-white text-2xl font-bold">
+                        {playerStats.win_rate.toFixed(1)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400 text-sm">Total Profit/Loss (Stake)</div>
                       <div className={`text-2xl font-bold ${playerStats.total_player_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {playerStats.total_player_profit >= 0 ? '+' : ''}${playerStats.total_player_profit.toFixed(2)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-gray-400 text-sm">Actual RTP</div>
+                      <div className="text-gray-400 text-sm">Stake-Based RTP</div>
                       <div className="text-white text-2xl font-bold">
                         {(playerStats.actual_rtp * 100).toFixed(2)}%
                       </div>
@@ -511,18 +528,6 @@ function App() {
                       <div className="text-gray-400 text-sm">House Profit (from this player)</div>
                       <div className="text-white text-2xl font-bold">
                         ${playerStats.house_profit.toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 text-sm">Avg Configured RTP</div>
-                      <div className="text-white text-2xl font-bold">
-                        {(playerStats.avg_configured_rtp * 100).toFixed(1)}%
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 text-sm">RTP Difference</div>
-                      <div className={`text-2xl font-bold ${Math.abs(playerStats.rtp_difference) < 0.05 ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {playerStats.rtp_difference >= 0 ? '+' : ''}{(playerStats.rtp_difference * 100).toFixed(2)}%
                       </div>
                     </div>
                     <div>

@@ -56,6 +56,7 @@ curl http://localhost:8000/healthz
 curl -X POST http://localhost:8000/api/simulate \
   -H "Content-Type: application/json" \
   -d '{
+    "user_id": "player123",
     "home_team": "Manchester United",
     "away_team": "Arsenal",
     "score_probabilities": [
@@ -152,9 +153,10 @@ docker-compose exec frontend /bin/sh
 ## Next Steps
 
 - Read [DEPLOYMENT.md](DEPLOYMENT.md) for production deployment options
-- Check [API_EXAMPLES_FINAL.md](API_EXAMPLES_FINAL.md) for more API examples
+- Check [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for complete API reference
 - Explore the dashboard at http://localhost:3000
 - View API documentation at http://localhost:8000/docs
+- Test player-specific statistics with different user IDs
 
 ## Default Configuration
 
