@@ -49,7 +49,7 @@ export function Auth({ onLogin, onRegister }: AuthProps) {
       <Card className="w-full max-w-md bg-gray-800 border-gray-700 p-8">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">
-            Sports Betting
+            Super Bet
           </h1>
           <p className="text-gray-400">
             {isLogin ? 'Login to your account' : 'Create a new account'}
