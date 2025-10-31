@@ -392,12 +392,41 @@ function App() {
           </Card>
         </div>
 
+        <Card className="bg-gradient-to-br from-blue-500 to-purple-600 border-none text-white mb-8">
+          <CardHeader>
+            <CardTitle className="text-white text-xl flex items-center gap-2">
+              <Activity size={24} />
+              How RTP Balancing Works
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              <p>
+                <strong>RTP (Return to Player)</strong> controls how much money the house keeps over time. 
+                A 96% RTP means players get back 96% of their stakes on average, and the house keeps 4%.
+              </p>
+              <p>
+                <strong>Dynamic Balancing:</strong> The system adjusts each player's win probability based on their historical performance:
+              </p>
+              <ul className="list-disc list-inside space-y-1 ml-4">
+                <li>If a player's RTP is <strong>below</strong> the target (losing too much), their win chances increase</li>
+                <li>If a player's RTP is <strong>above</strong> the target (winning too much), their win chances decrease</li>
+                <li>This ensures RTP <strong>converges to the target</strong> over many bets (typically 100+ bets)</li>
+              </ul>
+              <p className="text-blue-100">
+                <strong>Example:</strong> If the target RTP is 96% and a player's actual RTP is 80% (losing too much), 
+                the system gives them ~5% better odds on the next bet to help them catch up.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {rtpTrends.length > 0 && (
           <Card className="bg-white bg-opacity-10 backdrop-blur-md border-white border-opacity-20 mb-8">
             <CardHeader>
               <CardTitle className="text-white text-2xl">RTP Trends Over Time</CardTitle>
               <CardDescription className="text-blue-200">
-                Configured vs Actual RTP across {rtpTrends.length} simulations
+                Configured vs Actual RTP across {rtpTrends.length} simulations - observe how actual RTP converges toward the configured target
               </CardDescription>
             </CardHeader>
             <CardContent>

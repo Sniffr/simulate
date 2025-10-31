@@ -67,6 +67,11 @@ async def simulate_match(request: MatchSimulationRequest):
         
         betting_engine = BettingEngine(rtp=current_rtp)
         
+        from app.database import get_player_stats
+        player_stats = get_player_stats(request.user_id) if request.user_id else None
+        player_total_staked = player_stats['total_staked'] if player_stats else None
+        player_total_payout = player_stats['total_paid_out'] if player_stats else None
+        
         from app.rng_engine import FootballRNG
         temp_rng = FootballRNG(request.seed)
         
@@ -76,7 +81,9 @@ async def simulate_match(request: MatchSimulationRequest):
             adjusted_probabilities = betting_engine.adjust_probabilities_for_bet(
                 score_probabilities=adjusted_probabilities,
                 bet_selection=bet,
-                rng_value=rng_value
+                rng_value=rng_value,
+                player_total_staked=player_total_staked,
+                player_total_payout=player_total_payout
             )
         
         simulator = FootballMatchSimulator(
@@ -177,6 +184,12 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
             raise HTTPException(status_code=400, detail="Bet slip must contain at least one selection")
         
         betting_engine = BettingEngine(rtp=current_rtp)
+        
+        from app.database import get_player_stats
+        player_stats = get_player_stats(request.user_id) if request.user_id else None
+        player_total_staked = player_stats['total_staked'] if player_stats else None
+        player_total_payout = player_stats['total_paid_out'] if player_stats else None
+        
         from app.rng_engine import FootballRNG
         rng = FootballRNG(request.seed)
         
@@ -206,7 +219,9 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
                 adjusted_probabilities = betting_engine.adjust_probabilities_for_bet(
                     score_probabilities=adjusted_probabilities,
                     bet_selection=bet_sel,
-                    rng_value=rng_value
+                    rng_value=rng_value,
+                    player_total_staked=player_total_staked,
+                    player_total_payout=player_total_payout
                 )
             
             simulator = FootballMatchSimulator(

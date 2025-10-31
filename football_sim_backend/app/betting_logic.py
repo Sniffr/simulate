@@ -1,24 +1,42 @@
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 from app.models import MarketType, BetResult, BetSelection, ScoreProbability
 
 
 class BettingEngine:
-    def __init__(self, rtp: float = 0.96):
+    def __init__(self, rtp: float = 0.96, rtp_window_size: int = 100):
+        """
+        Initialize betting engine with RTP control.
+        
+        Args:
+            rtp: Target RTP (Return to Player) - typically 0.92 to 0.98
+            rtp_window_size: Number of bets over which to balance RTP (default 100)
+        """
         self.rtp = rtp
+        self.rtp_window_size = rtp_window_size
     
     def adjust_probabilities_for_bet(
         self,
         score_probabilities: List[ScoreProbability],
         bet_selection: BetSelection,
-        rng_value: float
+        rng_value: float,
+        player_total_staked: Optional[float] = None,
+        player_total_payout: Optional[float] = None
     ) -> List[ScoreProbability]:
-        true_odds = self._get_base_odds_for_market(bet_selection.market)
-        fair_probability = 1.0 / true_odds if true_odds > 0 else 0.5
+        """
+        Adjust probabilities to control RTP using pooled RTP balancing.
         
-        win_probability = fair_probability * self.rtp
+        This implements a balanced RTP system:
+        - If player's current RTP is below target, increase win probability
+        - If player's current RTP is above target, decrease win probability
+        - This ensures RTP converges to target over many bets
         
-        should_win = rng_value < win_probability
-        
+        Args:
+            score_probabilities: List of possible score outcomes
+            bet_selection: The bet being placed
+            rng_value: Random number 0-1 for determining outcome
+            player_total_staked: Player's total staked amount (for RTP balancing)
+            player_total_payout: Player's total payout amount (for RTP balancing)
+        """
         favorable_scores = []
         unfavorable_scores = []
         
@@ -27,6 +45,23 @@ class BettingEngine:
                 favorable_scores.append(sp)
             else:
                 unfavorable_scores.append(sp)
+        
+        if not favorable_scores or not unfavorable_scores:
+            return score_probabilities
+        
+        total_favorable_prob = sum(sp.probability for sp in favorable_scores)
+        
+        rtp_adjustment = self._calculate_rtp_adjustment(
+            player_total_staked, 
+            player_total_payout,
+            bet_selection.stake
+        )
+        
+        # Apply RTP adjustment to win probability
+        adjusted_win_prob = total_favorable_prob * rtp_adjustment
+        adjusted_win_prob = max(0.0, min(1.0, adjusted_win_prob))
+        
+        should_win = rng_value < adjusted_win_prob
         
         if should_win and favorable_scores:
             total_favorable = sum(sp.probability for sp in favorable_scores)
@@ -128,6 +163,38 @@ class BettingEngine:
             profit=profit,
             explanation=explanation
         )
+    
+    def _calculate_rtp_adjustment(
+        self,
+        player_total_staked: Optional[float],
+        player_total_payout: Optional[float],
+        current_stake: Optional[float]
+    ) -> float:
+        """
+        Calculate RTP adjustment factor based on player's historical performance.
+        
+        Returns a multiplier to apply to win probability:
+        - If player RTP < target RTP: return value > 1.0 (increase win chance)
+        - If player RTP > target RTP: return value < 1.0 (decrease win chance)
+        - If no history: return self.rtp (normal RTP)
+        """
+        if player_total_staked is None or player_total_payout is None:
+            return self.rtp
+        
+        if player_total_staked < 10:
+            return self.rtp
+        
+        current_rtp = player_total_payout / player_total_staked if player_total_staked > 0 else 0
+        
+        rtp_diff = self.rtp - current_rtp
+        
+        adjustment_strength = 0.3
+        
+        adjustment = 1.0 + (rtp_diff * adjustment_strength)
+        
+        adjustment = max(0.5, min(1.5, adjustment))
+        
+        return adjustment
     
     def _check_outcome_for_score(
         self,
