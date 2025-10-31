@@ -136,14 +136,11 @@ def get_simulations(
                 'away_team': row['away_team'],
                 'home_score': row['home_score'],
                 'away_score': row['away_score'],
-                'final_score_home': row['home_score'],
-                'final_score_away': row['away_score'],
                 'bet_slip_won': bool(row['bet_slip_won']),
                 'total_stake': row['total_stake'],
                 'total_payout': row['total_payout'],
                 'total_profit': row['total_profit'],
                 'configured_rtp': row['configured_rtp'],
-                'rtp': row['configured_rtp'],
                 'seed': row['seed'],
                 'volatility': row['volatility'],
                 'total_events': row['total_events'],
@@ -151,8 +148,7 @@ def get_simulations(
                 'bet_results': json.loads(row['bet_results']),
                 'events': json.loads(row['events']),
                 'match_stats': json.loads(row['match_stats']),
-                'created_at': row['created_at'],
-                'timestamp': row['created_at']
+                'created_at': row['created_at']
             })
         
         return simulations

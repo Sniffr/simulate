@@ -41,7 +41,7 @@ class ScoreProbability(BaseModel):
     probability: float = Field(ge=0.0, le=1.0, example=0.18)
 
 
-class OldBetSelection(BaseModel):
+class BetSelection(BaseModel):
     market: MarketType = Field(example="1X2")
     outcome: str = Field(example="1")
     stake: Optional[float] = Field(default=None, gt=0, description="Amount wagered on this bet", example=20.0)
@@ -62,7 +62,7 @@ class MatchSimulationRequest(BaseModel):
             {"home_score": 0, "away_score": 1, "probability": 0.10}
         ]
     )
-    bet_slip: List[OldBetSelection] = Field(
+    bet_slip: List[BetSelection] = Field(
         min_length=1, 
         description="List of bets placed (all must win for bet_slip_won=true)",
         example=[
@@ -74,7 +74,7 @@ class MatchSimulationRequest(BaseModel):
     seed: Optional[int] = Field(default=None, description="Random seed for reproducible results", example=12345)
 
 
-class OldBetResult(BaseModel):
+class BetResult(BaseModel):
     market: MarketType
     outcome: str
     stake: Optional[float] = None
@@ -90,103 +90,13 @@ class MatchSimulationResponse(BaseModel):
     home_team: str
     away_team: str
     final_score: Dict[str, int]
-    bet_results: List[OldBetResult]
+    bet_results: List[BetResult]
     bet_slip_won: bool
     total_stake: Optional[float] = None
     total_payout: Optional[float] = None
     total_profit: Optional[float] = None
     events: List[MatchEvent]
     match_stats: Dict[str, Any]
-    simulation_metadata: Dict[str, Any]
-
-
-class BetSelection(BaseModel):
-    match_id: str = Field(description="Unique identifier for the match", example="match_1")
-    home_team: str = Field(example="Manchester United")
-    away_team: str = Field(example="Arsenal")
-    market: MarketType = Field(example="1X2")
-    outcome: str = Field(example="1")
-    odds: float = Field(gt=1.0, description="Payout multiplier if bet wins", example=2.1)
-
-
-class MatchData(BaseModel):
-    match_id: str = Field(description="Unique identifier for this match", example="match_1")
-    home_team: str = Field(example="Manchester United")
-    away_team: str = Field(example="Arsenal")
-    score_probabilities: List[ScoreProbability] = Field(
-        description="List of possible score outcomes with probabilities",
-        example=[
-            {"home_score": 1, "away_score": 0, "probability": 0.15},
-            {"home_score": 2, "away_score": 1, "probability": 0.18},
-            {"home_score": 1, "away_score": 1, "probability": 0.15}
-        ]
-    )
-
-
-class BetslipSimulationRequest(BaseModel):
-    user_id: str = Field(description="Unique identifier for the player/user", example="player123")
-    matches: List[MatchData] = Field(
-        min_length=1,
-        description="List of matches to simulate",
-        example=[{
-            "match_id": "match_1",
-            "home_team": "Manchester United",
-            "away_team": "Arsenal",
-            "score_probabilities": [
-                {"home_score": 1, "away_score": 0, "probability": 0.15},
-                {"home_score": 2, "away_score": 1, "probability": 0.18}
-            ]
-        }]
-    )
-    bet_slip: List[BetSelection] = Field(
-        min_length=1, 
-        description="List of bet selections (all must win for betslip to win)",
-        example=[
-            {"match_id": "match_1", "home_team": "Manchester United", "away_team": "Arsenal", "market": "1X2", "outcome": "1", "odds": 2.1},
-            {"match_id": "match_2", "home_team": "Chelsea", "away_team": "Liverpool", "market": "over_under", "outcome": "over_2.5", "odds": 1.8}
-        ]
-    )
-    stake: float = Field(gt=0, description="Total amount wagered on this betslip", example=100.0)
-    volatility: str = Field(default="medium", description="low, medium, or high", example="medium")
-    seed: Optional[int] = Field(default=None, description="Random seed for reproducible results", example=12345)
-
-
-class BetResult(BaseModel):
-    match_id: str
-    home_team: str
-    away_team: str
-    market: MarketType
-    outcome: str
-    odds: float
-    won: bool
-    outcome_occurred: bool
-    explanation: str
-    home_score: int
-    away_score: int
-
-
-class MatchSimulationResult(BaseModel):
-    match_id: str
-    home_team: str
-    away_team: str
-    home_score: int
-    away_score: int
-    events: List[MatchEvent]
-    match_stats: Dict[str, Any]
-
-
-class BetslipSimulationResponse(BaseModel):
-    user_id: str
-    matches: List[MatchSimulationResult]
-    bet_results: List[BetResult]
-    bet_slip_won: bool
-    total_selections: int
-    winning_selections: int
-    total_odds: float
-    stake: float
-    potential_payout: float
-    actual_payout: float
-    profit: float
     simulation_metadata: Dict[str, Any]
 
 
