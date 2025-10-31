@@ -67,10 +67,10 @@ async def simulate_match(request: MatchSimulationRequest):
         
         betting_engine = BettingEngine(rtp=current_rtp)
         
-        from app.database import get_player_stats
-        player_stats = get_player_stats(request.user_id) if request.user_id else None
-        player_total_staked = player_stats['total_staked'] if player_stats else None
-        player_total_payout = player_stats['total_paid_out'] if player_stats else None
+        from app.database import get_simulation_stats
+        house_stats = get_simulation_stats()
+        house_total_staked = house_stats['total_staked'] if house_stats else None
+        house_total_payout = house_stats['total_paid_out'] if house_stats else None
         
         from app.rng_engine import FootballRNG
         temp_rng = FootballRNG(request.seed)
@@ -82,8 +82,8 @@ async def simulate_match(request: MatchSimulationRequest):
                 score_probabilities=adjusted_probabilities,
                 bet_selection=bet,
                 rng_value=rng_value,
-                player_total_staked=player_total_staked,
-                player_total_payout=player_total_payout
+                house_total_staked=house_total_staked,
+                house_total_payout=house_total_payout
             )
         
         simulator = FootballMatchSimulator(
@@ -185,10 +185,10 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
         
         betting_engine = BettingEngine(rtp=current_rtp)
         
-        from app.database import get_player_stats
-        player_stats = get_player_stats(request.user_id) if request.user_id else None
-        player_total_staked = player_stats['total_staked'] if player_stats else None
-        player_total_payout = player_stats['total_paid_out'] if player_stats else None
+        from app.database import get_simulation_stats
+        house_stats = get_simulation_stats()
+        house_total_staked = house_stats['total_staked'] if house_stats else None
+        house_total_payout = house_stats['total_paid_out'] if house_stats else None
         
         from app.rng_engine import FootballRNG
         rng = FootballRNG(request.seed)
@@ -208,20 +208,37 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
                 sel for sel in request.bet_slip if sel.match_id == match_data.match_id
             ]
             
+            # Calculate betslip-level potential payout for RTP control
+            # For multi-bets, we need to consider the entire betslip stake and odds
+            betslip_potential_payout = None
+            if request.stake:
+                # Calculate cumulative odds up to this match
+                cumulative_odds = 1.0
+                for sel in request.bet_slip:
+                    cumulative_odds *= sel.odds
+                    if sel.match_id == match_data.match_id:
+                        break  # Stop at current match
+                # Estimate potential payout if all matches win
+                betslip_potential_payout = request.stake * cumulative_odds
+            
             adjusted_probabilities = match_data.score_probabilities
             for selection in selections_for_this_match:
+                # For multi-bets, use a portion of the betslip stake for RTP calculation
+                # This helps control RTP at the betslip level
+                bet_stake = request.stake / len(request.matches) if request.stake else None
                 bet_sel = BetSelection(
                     market=selection.market,
                     outcome=selection.outcome,
-                    odds=selection.odds
+                    odds=selection.odds,
+                    stake=bet_stake  # Distribute betslip stake across matches for RTP calculation
                 )
                 rng_value = rng.next_random()
                 adjusted_probabilities = betting_engine.adjust_probabilities_for_bet(
                     score_probabilities=adjusted_probabilities,
                     bet_selection=bet_sel,
                     rng_value=rng_value,
-                    player_total_staked=player_total_staked,
-                    player_total_payout=player_total_payout
+                    house_total_staked=house_total_staked,
+                    house_total_payout=house_total_payout
                 )
             
             simulator = FootballMatchSimulator(
