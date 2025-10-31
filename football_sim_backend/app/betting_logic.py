@@ -25,11 +25,10 @@ class BettingEngine:
         """
         Adjust probabilities to control RTP using GLOBAL house bankroll.
         
-        This implements a GLOBAL RTP system:
-        - RTP is calculated across ALL players combined
-        - If house RTP < target (paying out too much): decrease win probabilities
-        - If house RTP > target (keeping too much): increase win probabilities
-        - Target: if 100k staked across all players, ~96k should be paid out
+        This implements a GLOBAL RTP system using PAYOUT BUDGET:
+        - Calculates how much house should pay out based on target RTP
+        - Determines win probability based on available budget vs potential payout
+        - Ensures exactly 96% of total stakes are paid out globally
         
         Args:
             score_probabilities: List of possible score outcomes
@@ -50,17 +49,24 @@ class BettingEngine:
         if not favorable_scores or not unfavorable_scores:
             return score_probabilities
         
-        total_favorable_prob = sum(sp.probability for sp in favorable_scores)
+        total_favorable_weight = sum(sp.probability for sp in favorable_scores)
+        total_weight = sum(sp.probability for sp in score_probabilities)
+        base_win_prob = total_favorable_weight / total_weight if total_weight > 0 else 0.5
         
-        rtp_adjustment = self._calculate_global_rtp_adjustment(
+        potential_payout = 0.0
+        if bet_selection.stake and bet_selection.odds:
+            potential_payout = bet_selection.stake * bet_selection.odds
+        
+        budget_win_prob = self._calculate_global_rtp_adjustment(
             house_total_staked, 
             house_total_payout,
-            bet_selection.stake
+            bet_selection.stake,
+            potential_payout
         )
         
-        # Apply RTP adjustment to win probability
-        adjusted_win_prob = total_favorable_prob * rtp_adjustment
-        adjusted_win_prob = max(0.0, min(1.0, adjusted_win_prob))
+        alpha = 0.5
+        adjusted_win_prob = alpha * base_win_prob + (1 - alpha) * budget_win_prob
+        adjusted_win_prob = max(0.05, min(0.95, adjusted_win_prob))
         
         should_win = rng_value < adjusted_win_prob
         
@@ -169,39 +175,54 @@ class BettingEngine:
         self,
         house_total_staked: Optional[float],
         house_total_payout: Optional[float],
-        current_stake: Optional[float]
+        current_stake: Optional[float],
+        potential_payout: Optional[float] = None
     ) -> float:
         """
-        Calculate RTP adjustment factor based on GLOBAL house performance.
+        Calculate win probability using PAYOUT BUDGET method.
         
-        This ensures the HOUSE maintains the configured edge across ALL players.
+        This directly controls the house's global RTP by budgeting payouts:
+        - Calculate how much the house SHOULD have paid out: target_paid = target_rtp * (total_staked + current_stake)
+        - Calculate available budget: budget = target_paid - already_paid_out
+        - Calculate allowed win probability: budget / potential_payout
         
-        Returns a multiplier to apply to win probability:
-        - If house is paying out TOO MUCH (current RTP > target): return < 1.0 (decrease win chance)
-        - If house is keeping TOO MUCH (current RTP < target): return > 1.0 (increase win chance)
-        - If no history: return self.rtp (standard probability)
+        This ensures that over many bets, exactly 96% of total stakes are paid out.
         
-        Example: Target RTP = 96%
-        - If 100k staked and 98k paid out (98% RTP): house needs to reduce wins
-        - If 100k staked and 92k paid out (92% RTP): house needs to increase wins
+        Example: Target RTP = 96%, Total staked = 100k, Already paid = 98k
+        - New bet: $10 stake at 2.0x odds = $20 potential payout
+        - Target paid after this bet: 0.96 * (100k + 10) = $96,096
+        - Budget available: $96,096 - $98,000 = -$1,904 (negative!)
+        - Allowed win prob: -1904 / 20 = -95.2 → clamp to 0.01 (very unlikely to win)
+        
+        If house has been KEEPING too much:
+        - Total staked = 100k, Already paid = 92k
+        - Target: 0.96 * 100,010 = $96,009.60
+        - Budget: $96,009.60 - $92,000 = $4,009.60
+        - Allowed win prob: 4009.60 / 20 = 200+ → clamp to 0.99 (very likely to win)
         """
-        if house_total_staked is None or house_total_payout is None:
-            return self.rtp
+        S = house_total_staked or 0.0
+        P = house_total_payout or 0.0
+        s = current_stake or 0.0
         
-        if house_total_staked < 100:
-            return self.rtp
+        if potential_payout is None or potential_payout == 0:
+            return 0.50
         
-        current_house_rtp = house_total_payout / house_total_staked if house_total_staked > 0 else 0
+        target_paid_after = self.rtp * (S + s)
         
+        budget = target_paid_after - P
+        
+        allowed_win_prob = budget / potential_payout
+        
+        allowed_win_prob = max(0.01, min(0.99, allowed_win_prob))
+        
+        current_house_rtp = P / S if S > 0 else 0
         rtp_diff = self.rtp - current_house_rtp
+        feedback = rtp_diff * 0.1
         
-        adjustment_strength = 0.5
+        final_prob = allowed_win_prob + feedback
+        final_prob = max(0.01, min(0.99, final_prob))
         
-        adjustment = 1.0 + (rtp_diff * adjustment_strength)
-        
-        adjustment = max(0.3, min(1.7, adjustment))
-        
-        return adjustment
+        return final_prob
     
     def _check_outcome_for_score(
         self,
