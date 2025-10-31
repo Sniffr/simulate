@@ -74,63 +74,57 @@ class BettingEngine:
         
         # Use stronger probability adjustments to ensure outcome aligns with RTP requirements
         # Higher boost factor = more deterministic outcomes
+        # IMPORTANT: Store raw probabilities first, normalize, THEN create ScoreProbability objects
+        # This prevents validation errors from probabilities > 1.0
         if should_win and favorable_scores:
             # Boost favorable scores more aggressively to ensure win
             boost_factor = 5.0  # Increased from 2.0 for stronger control
-            adjusted = []
+            adjusted_raw = []  # Store tuples of (score, probability) before normalization
+            
             for sp in favorable_scores:
                 new_prob = sp.probability * boost_factor
-                adjusted.append(ScoreProbability(
-                    home_score=sp.home_score,
-                    away_score=sp.away_score,
-                    probability=new_prob
-                ))
+                adjusted_raw.append((sp.home_score, sp.away_score, new_prob))
+            
             for sp in unfavorable_scores:
                 new_prob = sp.probability * 0.1  # Reduce unfavorable more aggressively
-                adjusted.append(ScoreProbability(
-                    home_score=sp.home_score,
-                    away_score=sp.away_score,
-                    probability=new_prob
-                ))
+                adjusted_raw.append((sp.home_score, sp.away_score, new_prob))
             
-            total = sum(sp.probability for sp in adjusted)
-            normalized = [
-                ScoreProbability(
-                    home_score=sp.home_score,
-                    away_score=sp.away_score,
-                    probability=sp.probability / total
-                ) for sp in adjusted
-            ]
-            return normalized
+            # Normalize probabilities before creating ScoreProbability objects
+            total = sum(prob for _, _, prob in adjusted_raw)
+            if total > 0:
+                normalized = [
+                    ScoreProbability(
+                        home_score=home,
+                        away_score=away,
+                        probability=prob / total
+                    ) for home, away, prob in adjusted_raw
+                ]
+                return normalized
         
         elif not should_win and unfavorable_scores:
             # Boost unfavorable scores to ensure loss
             boost_factor = 5.0  # Increased from 2.0 for stronger control
-            adjusted = []
+            adjusted_raw = []  # Store tuples of (score, probability) before normalization
+            
             for sp in unfavorable_scores:
                 new_prob = sp.probability * boost_factor
-                adjusted.append(ScoreProbability(
-                    home_score=sp.home_score,
-                    away_score=sp.away_score,
-                    probability=new_prob
-                ))
+                adjusted_raw.append((sp.home_score, sp.away_score, new_prob))
+            
             for sp in favorable_scores:
                 new_prob = sp.probability * 0.1  # Reduce favorable more aggressively
-                adjusted.append(ScoreProbability(
-                    home_score=sp.home_score,
-                    away_score=sp.away_score,
-                    probability=new_prob
-                ))
+                adjusted_raw.append((sp.home_score, sp.away_score, new_prob))
             
-            total = sum(sp.probability for sp in adjusted)
-            normalized = [
-                ScoreProbability(
-                    home_score=sp.home_score,
-                    away_score=sp.away_score,
-                    probability=sp.probability / total
-                ) for sp in adjusted
-            ]
-            return normalized
+            # Normalize probabilities before creating ScoreProbability objects
+            total = sum(prob for _, _, prob in adjusted_raw)
+            if total > 0:
+                normalized = [
+                    ScoreProbability(
+                        home_score=home,
+                        away_score=away,
+                        probability=prob / total
+                    ) for home, away, prob in adjusted_raw
+                ]
+                return normalized
         
         return score_probabilities
     

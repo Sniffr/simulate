@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg
+import logging
+import traceback
 from typing import Optional
 from app.models import (
     MatchSimulationRequest, MatchSimulationResponse, RTPConfig, Market,
@@ -9,6 +11,13 @@ from app.models import (
 from app.match_simulator import FootballMatchSimulator
 from app.betting_logic import BettingEngine, get_supported_markets
 from app.database import save_simulation, get_simulations, get_simulation_stats, get_rtp_trends, get_count, get_player_stats, get_all_players
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Football Match Simulator API",
@@ -167,7 +176,11 @@ async def simulate_match(request: MatchSimulationRequest):
         
         return response
     
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error in /api/simulate: {str(e)}", exc_info=True)
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -178,6 +191,7 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
     All selections must win for the betslip to be won. RTP is applied across the entire betslip.
     """
     try:
+        logger.info(f"Received /api/simulate-multi request: user_id={request.user_id}, matches={len(request.matches)}, bet_slip={len(request.bet_slip)}")
         global current_rtp
         
         if len(request.bet_slip) == 0:
@@ -191,12 +205,15 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
         house_total_payout = house_stats['total_paid_out'] if house_stats else None
         
         from app.rng_engine import FootballRNG
+        logger.info(f"Creating RNG with seed: {request.seed}")
         rng = FootballRNG(request.seed)
         
         match_results = []
         match_scores = {}
         
+        logger.info(f"Processing {len(request.matches)} matches")
         for match_data in request.matches:
+            logger.info(f"Processing match: {match_data.match_id} - {match_data.home_team} vs {match_data.away_team}")
             total_probability = sum(sp.probability for sp in match_data.score_probabilities)
             if total_probability <= 0:
                 raise HTTPException(
@@ -269,8 +286,10 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
                 'away_team': match_data.away_team
             }
         
+        logger.info(f"Evaluating {len(request.bet_slip)} bet selections")
         bet_results = []
         for selection in request.bet_slip:
+            logger.info(f"Evaluating selection: match_id={selection.match_id}, market={selection.market}, outcome={selection.outcome}")
             if selection.match_id not in match_scores:
                 raise HTTPException(
                     status_code=400,
@@ -368,7 +387,11 @@ async def simulate_multi_match_betslip(request: MultiBetslipRequest):
         
         return response
         
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error in /api/simulate-multi: {str(e)}", exc_info=True)
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -14,33 +14,73 @@ API_URL = "http://localhost:8000"  # Change to http://localhost:8000 for local t
 TOTAL_BETS = 10000  # Total number of bets to simulate
 DELAY_BETWEEN_REQUESTS = 0.000000001  # Seconds between requests (to avoid overwhelming the server)
 
-USERS = [
-    {"id": "user_alice", "bet_frequency": 0.3, "avg_stake": 50},
-    {"id": "user_bob", "bet_frequency": 0.25, "avg_stake": 100},
-    {"id": "user_charlie", "bet_frequency": 0.2, "avg_stake": 25},
-    {"id": "user_diana", "bet_frequency": 0.15, "avg_stake": 75},
-    {"id": "user_eve", "bet_frequency": 0.1, "avg_stake": 150},  # High roller
-    {"id": "user_sidongo", "bet_frequency": 0.1, "avg_stake": 150},  # High roller
-    {"id": "user_atse", "bet_frequency": 0.4, "avg_stake": 30},  # High roller
-    {"id": "user_lolo", "bet_frequency": 0.2, "avg_stake": 10},  # High roller
-    {"id": "user_suko", "bet_frequency": 0.1, "avg_stake": 15},  # High roller
-    {"id": "user_appolo", "bet_frequency": 0.6, "avg_stake": 20},  # High roller
-    {"id": "user_selee", "bet_frequency": 0.1, "avg_stake": 50},  # High roller
-    {"id": "user_mele", "bet_frequency": 0.7, "avg_stake": 5},  # High roller
+# Generate 300 users with varied betting characteristics
+def generate_users(num_users: int = 300) -> List[Dict[str, Any]]:
+    """Generate users with realistic betting profiles"""
+    users = []
+    
+    # User profile types with distribution weights
+    profiles = [
+        # (bet_frequency_range, stake_range, weight)
+        ((0.05, 0.15), (10, 30), 0.40),   # Casual bettors - 40%
+        ((0.15, 0.30), (25, 75), 0.30),   # Regular bettors - 30%
+        ((0.30, 0.50), (50, 150), 0.20),  # Frequent bettors - 20%
+        ((0.50, 0.80), (5, 25), 0.05),    # High frequency small stakes - 5%
+        ((0.05, 0.20), (100, 500), 0.04), # High rollers - 4%
+        ((0.10, 0.25), (200, 1000), 0.01), # VIP high rollers - 1%
+    ]
+    
+    for i in range(num_users):
+        # Select profile based on weights
+        profile = random.choices(
+            profiles,
+            weights=[p[2] for p in profiles]
+        )[0]
+        
+        bet_freq_range, stake_range, _ = profile
+        bet_frequency = random.uniform(bet_freq_range[0], bet_freq_range[1])
+        avg_stake = random.uniform(stake_range[0], stake_range[1])
+        
+        users.append({
+            "id": f"user_{i+1:04d}",
+            "bet_frequency": round(bet_frequency, 3),
+            "avg_stake": round(avg_stake, 2)
+        })
+    
+    return users
+
+USERS = generate_users(300)
+
+# Generate 60+ unique teams (we'll use pairs for matches)
+TEAM_NAMES = [
+    # Premier League
+    "Manchester United", "Arsenal", "Liverpool", "Chelsea", "Manchester City",
+    "Tottenham", "Leicester City", "West Ham", "Everton", "Newcastle United",
+    "Aston Villa", "Brighton", "Crystal Palace", "Fulham", "Brentford",
+    # La Liga
+    "Barcelona", "Real Madrid", "Atletico Madrid", "Sevilla", "Valencia",
+    "Villarreal", "Real Betis", "Real Sociedad", "Athletic Bilbao", "Celta Vigo",
+    # Serie A
+    "Juventus", "AC Milan", "Inter Milan", "Napoli", "Roma",
+    "Lazio", "Atalanta", "Fiorentina", "Torino", "Bologna",
+    # Bundesliga
+    "Bayern Munich", "Borussia Dortmund", "RB Leipzig", "Bayer Leverkusen",
+    "Eintracht Frankfurt", "Borussia Mönchengladbach", "Wolfsburg", "Stuttgart",
+    # Ligue 1
+    "PSG", "Lyon", "Marseille", "Monaco", "Lille", "Nice",
+    # Other European
+    "Ajax", "PSV", "Porto", "Benfica", "Celtic", "Rangers",
+    "Shakhtar Donetsk", "Dynamo Kyiv", "Zenit", "Galatasaray",
+    "Fenerbahce", "Olympiakos", "Red Star Belgrade",
+    # Additional teams to reach 60+
+    "RB Salzburg", "Club Brugge", "Anderlecht", "Sporting Lisbon"
 ]
 
-TEAMS = [
-    ("Manchester United", "Arsenal"),
-    ("Liverpool", "Chelsea"),
-    ("Barcelona", "Real Madrid"),
-    ("Bayern Munich", "Borussia Dortmund"),
-    ("PSG", "Lyon"),
-    ("Juventus", "AC Milan"),
-    ("Atletico Madrid", "Sevilla"),
-    ("Tottenham", "Manchester City"),
-    ("Inter Milan", "Napoli"),
-    ("Ajax", "PSV"),
-]
+# Create team pairs for matches (all combinations possible)
+TEAMS = []
+for i, home in enumerate(TEAM_NAMES):
+    for away in TEAM_NAMES[i+1:]:  # Avoid same team and duplicates
+        TEAMS.append((home, away))
 
 MARKETS = ["1X2", "over_under"]
 
@@ -193,6 +233,8 @@ def main():
     print(f"  • API URL: {API_URL}")
     print(f"  • Total bets to simulate: {TOTAL_BETS}")
     print(f"  • Number of users: {len(USERS)}")
+    print(f"  • Number of unique teams: {len(TEAM_NAMES)}")
+    print(f"  • Number of possible team matchups: {len(TEAMS)}")
     print(f"  • Delay between requests: {DELAY_BETWEEN_REQUESTS}s")
     print()
     
@@ -293,25 +335,59 @@ def main():
     print()
     
     print("Per-User Statistics:")
+    active_users = []
+    user_stats_data = []
+    
     for user in USERS:
         player_stats = get_player_stats(user["id"])
         if player_stats and player_stats.get("total_simulations", 0) > 0:
-            print(f"\n  {user['id']}:")
-            print(f"    • Bets placed: {user_bet_counts[user['id']]} (total simulations: {player_stats['total_simulations']})")
-            print(f"    • Win rate: {player_stats.get('win_rate', 0):.1f}%")
-            print(f"    • Total staked: ${player_stats.get('total_staked', 0):.2f}")
-            print(f"    • Total payout: ${player_stats.get('total_paid_out', 0):.2f}")
-            print(f"    • Actual RTP: {player_stats.get('actual_rtp', 0):.2%}")
-            print(f"    • Target RTP: {player_stats.get('avg_configured_rtp', 0):.2%}")
+            active_users.append(user["id"])
+            user_stats_data.append({
+                "user_id": user["id"],
+                "bet_count": user_bet_counts[user["id"]],
+                "stats": player_stats
+            })
+    
+    print(f"  • Total active users (with bets): {len(active_users)}/{len(USERS)}")
+    
+    if user_stats_data:
+        # Show top 10 most active users
+        top_users = sorted(user_stats_data, key=lambda x: x["bet_count"], reverse=True)[:10]
+        print(f"\n  Top 10 Most Active Users:")
+        for user_data in top_users:
+            user_id = user_data["user_id"]
+            stats = user_data["stats"]
+            print(f"\n    {user_id}:")
+            print(f"      • Bets placed: {user_data['bet_count']} (total simulations: {stats['total_simulations']})")
+            print(f"      • Win rate: {stats.get('win_rate', 0):.1f}%")
+            print(f"      • Total staked: ${stats.get('total_staked', 0):.2f}")
+            print(f"      • Total payout: ${stats.get('total_paid_out', 0):.2f}")
+            print(f"      • Actual RTP: {stats.get('actual_rtp', 0):.2%}")
+            print(f"      • Target RTP: {stats.get('avg_configured_rtp', 0):.2%}")
             
-            rtp_diff = player_stats.get('rtp_difference', 0)
+            rtp_diff = stats.get('rtp_difference', 0)
             if abs(rtp_diff) < 0.05:
                 status = "✅ GOOD"
             elif abs(rtp_diff) < 0.10:
                 status = "⚠️  OK"
             else:
                 status = "❌ OFF"
-            print(f"    • RTP Difference: {rtp_diff:+.2%} {status}")
+            print(f"      • RTP Difference: {rtp_diff:+.2%} {status}")
+        
+        # Calculate and show RTP distribution summary
+        rtp_diffs = [s["stats"].get('rtp_difference', 0) for s in user_stats_data]
+        if rtp_diffs:
+            good_count = sum(1 for d in rtp_diffs if abs(d) < 0.05)
+            ok_count = sum(1 for d in rtp_diffs if 0.05 <= abs(d) < 0.10)
+            off_count = sum(1 for d in rtp_diffs if abs(d) >= 0.10)
+            
+            print(f"\n  RTP Distribution Summary ({len(active_users)} active users):")
+            print(f"    • ✅ GOOD (within ±5%): {good_count} ({good_count/len(active_users)*100:.1f}%)")
+            print(f"    • ⚠️  OK (within ±10%): {ok_count} ({ok_count/len(active_users)*100:.1f}%)")
+            print(f"    • ❌ OFF (>±10%): {off_count} ({off_count/len(active_users)*100:.1f}%)")
+            
+            avg_rtp_diff = sum(rtp_diffs) / len(rtp_diffs)
+            print(f"    • Average RTP Difference: {avg_rtp_diff:+.2%}")
     
     print()
     

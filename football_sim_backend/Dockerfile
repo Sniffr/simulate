@@ -36,9 +36,14 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
 # Run the application with Gunicorn
+# Use --reload for development (auto-reload on code changes)
+# Use single worker for better error visibility in logs
 CMD ["poetry", "run", "gunicorn", "app.main:app", \
-     "--workers", "4", \
+     "--workers", "1", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--bind", "0.0.0.0:8000", \
      "--access-logfile", "-", \
-     "--error-logfile", "-"]
+     "--error-logfile", "-", \
+     "--log-level", "info", \
+     "--capture-output", \
+     "--enable-stdio-inheritance"]

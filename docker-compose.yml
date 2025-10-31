@@ -9,9 +9,14 @@ services:
     environment:
       - DATABASE_URL=sqlite:///./data/simulations.db
       - DEFAULT_RTP=0.96
+      - PYTHONUNBUFFERED=1  # Ensure Python output is not buffered
     volumes:
       # Persist database between container restarts
       - backend-data:/app/data
+      # Mount source code for auto-reload on changes (read-write for file watching)
+      - ./football_sim_backend/app:/app/app
+    # Override command to use uvicorn with auto-reload for development
+    command: poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
