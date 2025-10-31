@@ -1,5 +1,5 @@
 from typing import Tuple, List
-from app.models import MarketType, BetResult, BetSelection, ScoreProbability
+from app.models import MarketType, OldBetResult, OldBetSelection, ScoreProbability
 
 
 class BettingEngine:
@@ -9,7 +9,7 @@ class BettingEngine:
     def adjust_probabilities_for_bet(
         self,
         score_probabilities: List[ScoreProbability],
-        bet_selection: BetSelection,
+        bet_selection: OldBetSelection,
         rng_value: float
     ) -> List[ScoreProbability]:
         true_odds = self._get_base_odds_for_market(bet_selection.market)
@@ -91,12 +91,12 @@ class BettingEngine:
     
     def evaluate_bet(
         self,
-        bet_selection: BetSelection,
+        bet_selection: OldBetSelection,
         home_team: str,
         away_team: str,
         home_score: int,
         away_score: int
-    ) -> BetResult:
+    ) -> OldBetResult:
         outcome_occurred = self._check_outcome_for_score(
             bet_selection, home_score, away_score
         )
@@ -117,7 +117,7 @@ class BettingEngine:
             outcome_occurred, bet_won
         )
         
-        return BetResult(
+        return OldBetResult(
             market=bet_selection.market,
             outcome=bet_selection.outcome,
             stake=bet_selection.stake,
@@ -131,7 +131,7 @@ class BettingEngine:
     
     def _check_outcome_for_score(
         self,
-        bet_selection: BetSelection,
+        bet_selection: OldBetSelection,
         home_score: int,
         away_score: int
     ) -> bool:
@@ -188,7 +188,7 @@ class BettingEngine:
     
     def _generate_explanation(
         self,
-        bet_selection: BetSelection,
+        bet_selection: OldBetSelection,
         home_team: str,
         away_team: str,
         home_score: int,
