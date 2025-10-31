@@ -10,9 +10,9 @@ import time
 from typing import List, Dict, Any
 import json
 
-API_URL = "https://app-pqyimwto.fly.dev"  # Change to http://localhost:8000 for local testing
-TOTAL_BETS = 200  # Total number of bets to simulate
-DELAY_BETWEEN_REQUESTS = 0.1  # Seconds between requests (to avoid overwhelming the server)
+API_URL = "http://localhost:8000"  # Change to http://localhost:8000 for local testing
+TOTAL_BETS = 10000  # Total number of bets to simulate
+DELAY_BETWEEN_REQUESTS = 0.000000001  # Seconds between requests (to avoid overwhelming the server)
 
 USERS = [
     {"id": "user_alice", "bet_frequency": 0.3, "avg_stake": 50},
@@ -20,6 +20,13 @@ USERS = [
     {"id": "user_charlie", "bet_frequency": 0.2, "avg_stake": 25},
     {"id": "user_diana", "bet_frequency": 0.15, "avg_stake": 75},
     {"id": "user_eve", "bet_frequency": 0.1, "avg_stake": 150},  # High roller
+    {"id": "user_sidongo", "bet_frequency": 0.1, "avg_stake": 150},  # High roller
+    {"id": "user_atse", "bet_frequency": 0.4, "avg_stake": 30},  # High roller
+    {"id": "user_lolo", "bet_frequency": 0.2, "avg_stake": 10},  # High roller
+    {"id": "user_suko", "bet_frequency": 0.1, "avg_stake": 15},  # High roller
+    {"id": "user_appolo", "bet_frequency": 0.6, "avg_stake": 20},  # High roller
+    {"id": "user_selee", "bet_frequency": 0.1, "avg_stake": 50},  # High roller
+    {"id": "user_mele", "bet_frequency": 0.7, "avg_stake": 5},  # High roller
 ]
 
 TEAMS = [
@@ -72,7 +79,8 @@ def generate_score_probabilities() -> List[Dict[str, Any]]:
 def generate_single_bet(user: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a single match bet request"""
     home_team, away_team = random.choice(TEAMS)
-    stake = max(10, random.gauss(user["avg_stake"], user["avg_stake"] * 0.3))
+    stake = max(1.0, random.gauss(user["avg_stake"], user["avg_stake"] * 0.3))
+    stake = max(1.0, round(stake, 2))  # Ensure stake is at least 1.0 after rounding
     
     market = random.choice(MARKETS)
     
@@ -91,7 +99,7 @@ def generate_single_bet(user: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "market": market,
                 "outcome": outcome,
-                "stake": round(stake, 2),
+                "stake": stake,
                 "odds": round(odds, 2)
             }
         ],
@@ -103,7 +111,8 @@ def generate_single_bet(user: Dict[str, Any]) -> Dict[str, Any]:
 def generate_multi_bet(user: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a multi-match accumulator bet"""
     num_matches = random.randint(2, 4)
-    stake = max(10, random.gauss(user["avg_stake"] * 0.7, user["avg_stake"] * 0.2))
+    stake = max(1.0, random.gauss(user["avg_stake"] * 0.7, user["avg_stake"] * 0.2))
+    stake = max(1.0, round(stake, 2))  # Ensure stake is at least 1.0 after rounding
     
     matches = []
     bet_slip = []
@@ -140,7 +149,7 @@ def generate_multi_bet(user: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "matches": matches,
         "bet_slip": bet_slip,
-        "stake": round(stake, 2),
+        "stake": stake,
         "user_id": user["id"],
         "volatility": random.choice(["low", "medium", "high"]),
         "seed": random.randint(1, 1000000)
@@ -232,7 +241,15 @@ def main():
             results["total_bets"] += 1
             
             won = response.get("bet_slip_won", False)
-            stake = response.get("total_stake") or 0
+            # Get stake from response, fallback to payload stake, ensure minimum of 1.0
+            stake = response.get("total_stake")
+            if stake is None or stake == 0:
+                # Fallback to payload stake for multi bets or bet_slip stake for single bets
+                if is_multi:
+                    stake = payload.get("stake", 1.0)
+                else:
+                    stake = payload.get("bet_slip", [{}])[0].get("stake", 1.0)
+            stake = max(1.0, stake)  # Ensure minimum stake of 1.0
             payout = response.get("total_payout") or 0
             
             results["total_staked"] += stake
@@ -259,10 +276,14 @@ def main():
     
     print("Overall Statistics:")
     print(f"  • Total bets placed: {results['total_bets']}")
-    print(f"  • Single bets: {results['single_bets']} ({results['single_bets']/results['total_bets']*100:.1f}%)")
-    print(f"  • Multi bets: {results['multi_bets']} ({results['multi_bets']/results['total_bets']*100:.1f}%)")
-    print(f"  • Wins: {results['wins']} ({results['wins']/results['total_bets']*100:.1f}%)")
-    print(f"  • Losses: {results['losses']} ({results['losses']/results['total_bets']*100:.1f}%)")
+    if results['total_bets'] > 0:
+        print(f"  • Single bets: {results['single_bets']} ({results['single_bets']/results['total_bets']*100:.1f}%)")
+        print(f"  • Multi bets: {results['multi_bets']} ({results['multi_bets']/results['total_bets']*100:.1f}%)")
+        print(f"  • Wins: {results['wins']} ({results['wins']/results['total_bets']*100:.1f}%)")
+        print(f"  • Losses: {results['losses']} ({results['losses']/results['total_bets']*100:.1f}%)")
+    else:
+        print("  ⚠️  No bets were placed - backend may not be running!")
+        print("  Please start the backend with: cd football_sim_backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
     print(f"  • Total staked: ${results['total_staked']:.2f}")
     print(f"  • Total payout: ${results['total_payout']:.2f}")
     print(f"  • Net profit/loss: ${results['total_payout'] - results['total_staked']:.2f}")

@@ -64,17 +64,19 @@ class BettingEngine:
             potential_payout
         )
         
-        alpha = 0.5
+        # Use RTP budget probability more heavily (80%) vs base probability (20%)
+        # This ensures RTP control is stronger than natural probabilities
+        alpha = 0.2
         adjusted_win_prob = alpha * base_win_prob + (1 - alpha) * budget_win_prob
         adjusted_win_prob = max(0.05, min(0.95, adjusted_win_prob))
         
         should_win = rng_value < adjusted_win_prob
         
+        # Use stronger probability adjustments to ensure outcome aligns with RTP requirements
+        # Higher boost factor = more deterministic outcomes
         if should_win and favorable_scores:
-            total_favorable = sum(sp.probability for sp in favorable_scores)
-            total_unfavorable = sum(sp.probability for sp in unfavorable_scores)
-            
-            boost_factor = 2.0
+            # Boost favorable scores more aggressively to ensure win
+            boost_factor = 5.0  # Increased from 2.0 for stronger control
             adjusted = []
             for sp in favorable_scores:
                 new_prob = sp.probability * boost_factor
@@ -84,7 +86,7 @@ class BettingEngine:
                     probability=new_prob
                 ))
             for sp in unfavorable_scores:
-                new_prob = sp.probability * 0.5
+                new_prob = sp.probability * 0.1  # Reduce unfavorable more aggressively
                 adjusted.append(ScoreProbability(
                     home_score=sp.home_score,
                     away_score=sp.away_score,
@@ -102,7 +104,8 @@ class BettingEngine:
             return normalized
         
         elif not should_win and unfavorable_scores:
-            boost_factor = 2.0
+            # Boost unfavorable scores to ensure loss
+            boost_factor = 5.0  # Increased from 2.0 for stronger control
             adjusted = []
             for sp in unfavorable_scores:
                 new_prob = sp.probability * boost_factor
@@ -112,7 +115,7 @@ class BettingEngine:
                     probability=new_prob
                 ))
             for sp in favorable_scores:
-                new_prob = sp.probability * 0.5
+                new_prob = sp.probability * 0.1  # Reduce favorable more aggressively
                 adjusted.append(ScoreProbability(
                     home_score=sp.home_score,
                     away_score=sp.away_score,
@@ -179,48 +182,73 @@ class BettingEngine:
         potential_payout: Optional[float] = None
     ) -> float:
         """
-        Calculate win probability using PAYOUT BUDGET method.
+        Calculate win probability using PAYOUT BUDGET method with stronger RTP control.
         
         This directly controls the house's global RTP by budgeting payouts:
         - Calculate how much the house SHOULD have paid out: target_paid = target_rtp * (total_staked + current_stake)
         - Calculate available budget: budget = target_paid - already_paid_out
         - Calculate allowed win probability: budget / potential_payout
         
-        This ensures that over many bets, exactly 96% of total stakes are paid out.
+        Uses stronger feedback mechanism to keep RTP within ±3% of target.
         
         Example: Target RTP = 96%, Total staked = 100k, Already paid = 98k
         - New bet: $10 stake at 2.0x odds = $20 potential payout
         - Target paid after this bet: 0.96 * (100k + 10) = $96,096
         - Budget available: $96,096 - $98,000 = -$1,904 (negative!)
         - Allowed win prob: -1904 / 20 = -95.2 → clamp to 0.01 (very unlikely to win)
-        
-        If house has been KEEPING too much:
-        - Total staked = 100k, Already paid = 92k
-        - Target: 0.96 * 100,010 = $96,009.60
-        - Budget: $96,009.60 - $92,000 = $4,009.60
-        - Allowed win prob: 4009.60 / 20 = 200+ → clamp to 0.99 (very likely to win)
         """
         S = house_total_staked or 0.0
         P = house_total_payout or 0.0
         s = current_stake or 0.0
         
+        # If no stake/odds, use base probability
         if potential_payout is None or potential_payout == 0:
+            # Still apply RTP feedback even without stake
+            if S > 0:
+                current_house_rtp = P / S
+                rtp_diff = self.rtp - current_house_rtp
+                # Stronger feedback: up to 30% adjustment
+                feedback = rtp_diff * 0.3
+                base_prob = 0.5 + feedback
+                return max(0.01, min(0.99, base_prob))
             return 0.50
         
+        # Calculate target payout after this bet
         target_paid_after = self.rtp * (S + s)
         
+        # Calculate budget (how much we can afford to pay out)
         budget = target_paid_after - P
         
-        allowed_win_prob = budget / potential_payout
+        # Calculate win probability based on budget
+        # If budget is negative, we've overpaid - reduce win probability
+        # If budget is positive, we can afford wins - increase win probability
+        if abs(potential_payout) > 0.0001:
+            allowed_win_prob = budget / potential_payout
+        else:
+            allowed_win_prob = 0.5
         
-        allowed_win_prob = max(0.01, min(0.99, allowed_win_prob))
-        
-        current_house_rtp = P / S if S > 0 else 0
+        # Calculate current RTP for feedback
+        current_house_rtp = P / S if S > 0 else self.rtp
         rtp_diff = self.rtp - current_house_rtp
-        feedback = rtp_diff * 0.1
         
-        final_prob = allowed_win_prob + feedback
-        final_prob = max(0.01, min(0.99, final_prob))
+        # Stronger feedback mechanism - up to 40% adjustment
+        # If RTP is too high (house losing money), reduce win probability more aggressively
+        # If RTP is too low (house keeping too much), increase win probability more aggressively
+        if abs(rtp_diff) > 0.03:  # More than 3% off target
+            feedback_strength = 0.5  # 50% feedback for large deviations
+        elif abs(rtp_diff) > 0.01:  # 1-3% off target
+            feedback_strength = 0.3  # 30% feedback for medium deviations
+        else:
+            feedback_strength = 0.15  # 15% feedback for small deviations
+        
+        feedback = rtp_diff * feedback_strength
+        
+        # Combine budget-based probability with RTP feedback
+        # Weight budget more heavily (70%) but use feedback to fine-tune (30%)
+        final_prob = 0.7 * allowed_win_prob + 0.3 * (0.5 + feedback)
+        
+        # Clamp to reasonable bounds with tighter limits
+        final_prob = max(0.05, min(0.95, final_prob))
         
         return final_prob
     
