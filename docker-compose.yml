@@ -22,15 +22,31 @@ services:
     networks:
       - football-sim-network
 
-  frontend:
+  dashboard:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
-    container_name: football-sim-frontend
+      args:
+        - VITE_API_URL=http://localhost:8000
+    container_name: football-sim-dashboard
     ports:
       - "8080:8080"
-    environment:
-      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - football-sim-network
+
+  sports-betting-frontend:
+    build:
+      context: ./sports-betting-frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_SIMULATION_API_URL=http://localhost:8000
+    container_name: sports-betting-frontend
+    ports:
+      - "3000:80"
     depends_on:
       backend:
         condition: service_healthy
